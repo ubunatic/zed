@@ -191,6 +191,10 @@ impl PlatformTextSystem for MacTextSystem {
         self.0.read().glyph_for_char(font_id, ch)
     }
 
+    fn font_name_for_id(&self, font_id: FontId) -> Option<String> {
+        self.0.read().postscript_names_by_font_id.get(&font_id).cloned()
+    }
+
     fn glyph_raster_bounds(&self, params: &RenderGlyphParams) -> Result<Bounds<DevicePixels>> {
         self.0.read().raster_bounds(params)
     }

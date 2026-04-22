@@ -41,7 +41,6 @@ use anyhow::Result;
 use anyhow::bail;
 use async_task::Runnable;
 use futures::channel::oneshot;
-#[cfg(any(test, feature = "test-support"))]
 use image::RgbaImage;
 use image::codecs::gif::GifDecoder;
 use image::{AnimationDecoder as _, Frame};
@@ -697,9 +696,7 @@ pub trait PlatformWindow: HasWindowHandle + HasDisplayHandle {
     }
 
     /// Renders the given scene to a texture and returns the pixel data as an RGBA image.
-    /// This does not present the frame to screen - useful for visual testing where we want
-    /// to capture what would be rendered without displaying it or requiring the window to be visible.
-    #[cfg(any(test, feature = "test-support"))]
+    /// This does not present the frame to screen - useful for visual testing and pixel inspection.
     fn render_to_image(&self, _scene: &Scene) -> Result<RgbaImage> {
         anyhow::bail!("render_to_image not implemented for this platform")
     }
@@ -769,6 +766,8 @@ pub trait PlatformTextSystem: Send + Sync {
     fn advance(&self, font_id: FontId, glyph_id: GlyphId) -> Result<Size<f32>>;
     /// Get the glyph ID for a character.
     fn glyph_for_char(&self, font_id: FontId, ch: char) -> Option<GlyphId>;
+    /// Get the postscript/family name for a font ID, including platform-resolved fallbacks.
+    fn font_name_for_id(&self, font_id: FontId) -> Option<String>;
     /// Get raster bounds for a glyph.
     fn glyph_raster_bounds(&self, params: &RenderGlyphParams) -> Result<Bounds<DevicePixels>>;
     /// Rasterize a glyph.
@@ -844,6 +843,10 @@ impl PlatformTextSystem for NoopTextSystem {
 
     fn glyph_for_char(&self, _font_id: FontId, ch: char) -> Option<GlyphId> {
         Some(GlyphId(ch.len_utf16() as u32))
+    }
+
+    fn font_name_for_id(&self, _font_id: FontId) -> Option<String> {
+        None
     }
 
     fn glyph_raster_bounds(&self, _params: &RenderGlyphParams) -> Result<Bounds<DevicePixels>> {

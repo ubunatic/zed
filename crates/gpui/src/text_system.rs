@@ -132,6 +132,11 @@ impl TextSystem {
         }
     }
 
+    /// Returns the postscript name for a font ID, including platform-resolved fallback fonts.
+    pub fn font_name_for_id(&self, id: FontId) -> Option<String> {
+        self.platform_text_system.font_name_for_id(id)
+    }
+
     /// Get the Font for the Font Id.
     pub fn get_font_for_id(&self, id: FontId) -> Option<Font> {
         let lock = self.font_ids_by_font.read();

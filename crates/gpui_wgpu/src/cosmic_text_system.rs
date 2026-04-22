@@ -163,6 +163,16 @@ impl PlatformTextSystem for CosmicTextSystem {
         self.0.read().glyph_for_char(font_id, ch)
     }
 
+    fn font_name_for_id(&self, font_id: FontId) -> Option<String> {
+        let state = self.0.read();
+        let db_id = state.loaded_font(font_id).font.id();
+        state
+            .font_system
+            .db()
+            .face(db_id)
+            .map(|face| face.post_script_name.clone())
+    }
+
     fn glyph_raster_bounds(&self, params: &RenderGlyphParams) -> Result<Bounds<DevicePixels>> {
         self.0.write().raster_bounds(params)
     }

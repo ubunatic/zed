@@ -7627,6 +7627,7 @@ name = "gpui"
 version = "0.2.2"
 dependencies = [
  "anyhow",
+ "assets",
  "async-channel 2.5.0",
  "async-task",
  "backtrace",
