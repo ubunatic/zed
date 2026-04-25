@@ -12,6 +12,12 @@ default-run = "zed"
 workspace = true
 
 [features]
+collab = [
+    "dep:call",
+    "dep:channel",
+    "dep:collab_ui",
+    "notifications/collab",
+]
 tracy = ["ztracing/tracy"]
 # LEAK_BACKTRACE=1 cargo run --features zed/track-project-leak --profile release-fast
 track-project-leak = ["gpui/leak-detection"]
@@ -27,6 +33,7 @@ test-support = [
     "recent_projects/test-support",
     "repl/test-support",
     "title_bar/test-support",
+    "collab",
 ]
 visual-tests = [
     "gpui/test-support",
@@ -76,14 +83,14 @@ audio.workspace = true
 auto_update.workspace = true
 auto_update_ui.workspace = true
 breadcrumbs.workspace = true
-call.workspace = true
+call = { workspace = true, optional = true }
 chrono.workspace = true
-channel.workspace = true
+channel = { workspace = true, optional = true }
 clap.workspace = true
 cli.workspace = true
 client.workspace = true
 codestral.workspace = true
-collab_ui.workspace = true
+collab_ui = { workspace = true, optional = true }
 collections.workspace = true
 command_palette.workspace = true
 component.workspace = true

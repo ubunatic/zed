@@ -1,6 +1,9 @@
 use anyhow::{Context as _, Result};
+#[cfg(feature = "collab")]
 use channel::ChannelStore;
-use client::{ChannelId, Client, UserStore};
+use client::{Client, UserStore};
+#[cfg(feature = "collab")]
+use client::ChannelId;
 use futures_lite::stream::StreamExt;
 use gpui::{App, AppContext as _, AsyncApp, Context, Entity, EventEmitter, Global, Task};
 use rpc::{Notification, TypedEnvelope, proto};
@@ -9,15 +12,19 @@ use sum_tree::{Bias, Dimensions, SumTree};
 use time::OffsetDateTime;
 use util::ResultExt;
 
+#[cfg(feature = "collab")]
 pub fn init(client: Arc<Client>, user_store: Entity<UserStore>, cx: &mut App) {
     let notification_store = cx.new(|cx| NotificationStore::new(client, user_store, cx));
     cx.set_global(GlobalNotificationStore(notification_store));
 }
 
+#[cfg(feature = "collab")]
 struct GlobalNotificationStore(Entity<NotificationStore>);
 
+#[cfg(feature = "collab")]
 impl Global for GlobalNotificationStore {}
 
+#[cfg(feature = "collab")]
 pub struct NotificationStore {
     client: Arc<Client>,
     user_store: Entity<UserStore>,
@@ -67,6 +74,7 @@ struct Count(usize);
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 struct NotificationId(u64);
 
+#[cfg(feature = "collab")]
 impl NotificationStore {
     pub fn global(cx: &App) -> Entity<Self> {
         cx.global::<GlobalNotificationStore>().0.clone()
@@ -374,6 +382,7 @@ impl NotificationStore {
     }
 }
 
+#[cfg(feature = "collab")]
 impl EventEmitter<NotificationEvent> for NotificationStore {}
 
 impl sum_tree::Item for NotificationEntry {
