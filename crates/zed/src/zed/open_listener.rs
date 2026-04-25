@@ -4,7 +4,10 @@ use agent_ui::ExternalSourcePrompt;
 use anyhow::{Context as _, Result, anyhow};
 use cli::{CliRequest, CliResponse, CliResponseSink};
 use cli::{IpcHandshake, ipc};
+#[cfg(feature = "collab")]
 use client::{ZedLink, parse_zed_link};
+#[cfg(not(feature = "collab"))]
+use client::{parse_zed_link};
 use db::kvp::KeyValueStore;
 use editor::Editor;
 use fs::Fs;
@@ -39,7 +42,9 @@ pub struct OpenRequest {
     pub diff_paths: Vec<[String; 2]>,
     pub diff_all: bool,
     pub dev_container: bool,
+    #[cfg(feature = "collab")]
     pub open_channel_notes: Vec<(u64, Option<String>)>,
+    #[cfg(feature = "collab")]
     pub join_channel: Option<u64>,
     pub remote_connection: Option<RemoteConnectionOptions>,
 }
@@ -185,15 +190,19 @@ impl OpenRequest {
                 this.parse_ssh_file_path(&url, cx)?
             } else if let Some(zed_link) = parse_zed_link(&url, cx) {
                 match zed_link {
+                    #[cfg(feature = "collab")]
                     ZedLink::Channel { channel_id } => {
                         this.join_channel = Some(channel_id);
                     }
+                    #[cfg(feature = "collab")]
                     ZedLink::ChannelNotes {
                         channel_id,
                         heading,
                     } => {
                         this.open_channel_notes.push((channel_id, heading));
                     }
+                    #[cfg(not(feature = "collab"))]
+                    _ => {}
                 }
             } else {
                 log::error!("unhandled url: {}", url);
