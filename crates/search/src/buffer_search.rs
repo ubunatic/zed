@@ -2018,6 +2018,7 @@ mod tests {
         let window = cx.add_window(|window, cx| {
             let default_key_bindings = settings::KeymapFile::load_asset_allow_partial_failure(
                 "keymaps/default-macos.json",
+                None,
                 cx,
             )
             .unwrap();
@@ -2061,6 +2062,7 @@ mod tests {
         let window = cx.add_window(|window, cx| {
             let default_key_bindings = settings::KeymapFile::load_asset_allow_partial_failure(
                 "keymaps/default-macos.json",
+                None,
                 cx,
             )
             .unwrap();
