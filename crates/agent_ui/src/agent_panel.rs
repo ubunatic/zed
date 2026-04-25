@@ -6360,7 +6360,7 @@ mod tests {
 
             // Load vim keybindings
             let mut vim_key_bindings =
-                settings::KeymapFile::load_asset_allow_partial_failure("keymaps/vim.json", cx)
+                settings::KeymapFile::load_asset_allow_partial_failure("keymaps/vim.json", None, cx)
                     .unwrap();
             for key_binding in &mut vim_key_bindings {
                 key_binding.set_meta(settings::KeybindSource::Vim.meta());
