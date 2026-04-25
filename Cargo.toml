@@ -961,6 +961,19 @@ debug = "full"
 lto = false
 codegen-units = 16
 
+[profile.release-lean]
+inherits = "release"
+# --- BUILD SPEED & DISK SAVINGS ---
+debug = 0              # 0 = No debug info. Massive disk savings in /target/deps.
+strip = "symbols"      # Removes symbol tables from the binary; shrinks final size.
+split-debuginfo = "off" # Prevents creation of extra debug files.
+codegen-units = 16     # Maximizes CPU cores for faster compilation.
+lto = false            # Disabling LTO saves massive RAM and temp disk space during linking.
+
+# --- RUNTIME PERFORMANCE ---
+opt-level = 3          # Keep high optimizations for a "not too slow" binary.
+panic = "abort"        # Removes stack unwinding code. Shrinks binary and speeds up builds.
+
 [workspace.lints.rust]
 unexpected_cfgs = { level = "allow" }
 
