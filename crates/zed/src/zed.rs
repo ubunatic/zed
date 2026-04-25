@@ -2091,19 +2091,19 @@ pub fn load_default_keymap(cx: &mut App) {
     let base_keymap = *BaseKeymap::get_global(cx);
     if base_keymap != BaseKeymap::None {
         cx.bind_keys(
-            KeymapFile::load_asset(DEFAULT_KEYMAP_PATH, Some(KeybindSource::Default), cx).unwrap(),
+            KeymapFile::load_asset_allow_partial_failure(DEFAULT_KEYMAP_PATH, Some(KeybindSource::Default), cx).expect("Failed to load default keymap"),
         );
 
         if let Some(asset_path) = base_keymap.asset_path() {
             cx.bind_keys(
-                KeymapFile::load_asset(asset_path, Some(KeybindSource::Base), cx).unwrap(),
+                KeymapFile::load_asset_allow_partial_failure(asset_path, Some(KeybindSource::Base), cx).expect("Failed to load base keymap"),
             );
         }
     }
 
     if VimModeSetting::get_global(cx).0 || vim_mode_setting::HelixModeSetting::get_global(cx).0 {
         cx.bind_keys(
-            KeymapFile::load_asset(VIM_KEYMAP_PATH, Some(KeybindSource::Vim), cx).unwrap(),
+            KeymapFile::load_asset_allow_partial_failure(VIM_KEYMAP_PATH, None, cx).expect("Failed to load vim keymap"),
         );
     }
 }
