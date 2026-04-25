@@ -13,16 +13,17 @@ path = "src/notifications.rs"
 doctest = false
 
 [features]
+collab = ["dep:channel"]
 test-support = [
     "channel/test-support",
-
+    "collab",
     "gpui/test-support",
     "rpc/test-support",
 ]
 
 [dependencies]
 anyhow.workspace = true
-channel.workspace = true
+channel = { workspace = true, optional = true }
 client.workspace = true
 futures-lite.workspace = true
 component.workspace = true
