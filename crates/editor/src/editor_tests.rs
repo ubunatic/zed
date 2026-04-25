@@ -27318,6 +27318,7 @@ async fn test_multi_buffer_navigation_with_folded_buffers(cx: &mut TestAppContex
     cx.update(|cx| {
         let default_key_bindings = settings::KeymapFile::load_asset_allow_partial_failure(
             "keymaps/default-linux.json",
+            None,
             cx,
         )
         .unwrap();

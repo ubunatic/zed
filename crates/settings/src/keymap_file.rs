@@ -203,6 +203,7 @@ impl KeymapFile {
 
     pub fn load_asset_allow_partial_failure(
         asset_path: &str,
+        source: Option<KeybindSource>,
         cx: &App,
     ) -> anyhow::Result<Vec<KeyBinding>> {
         match Self::load(asset_str::<SettingsAssets>(asset_path).as_ref(), cx) {
@@ -213,8 +214,15 @@ impl KeymapFile {
             } if key_bindings.is_empty() => {
                 anyhow::bail!("Error loading built-in keymap \"{asset_path}\": {error_message}",)
             }
-            KeymapFileLoadResult::Success { key_bindings, .. }
-            | KeymapFileLoadResult::SomeFailedToLoad { key_bindings, .. } => Ok(key_bindings),
+            KeymapFileLoadResult::Success { mut key_bindings, .. }
+            | KeymapFileLoadResult::SomeFailedToLoad { mut key_bindings, .. } => {
+                if let Some(source) = source {
+                    for key_binding in &mut key_bindings {
+                        key_binding.set_meta(source.meta());
+                    }
+                }
+                Ok(key_bindings)
+            }
             KeymapFileLoadResult::JsonParseFailure { error } => {
                 anyhow::bail!("JSON parse error in built-in keymap \"{asset_path}\": {error}")
             }

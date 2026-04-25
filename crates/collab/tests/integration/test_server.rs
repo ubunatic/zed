@@ -353,7 +353,7 @@ impl TestServer {
             file_finder::init(cx);
             menu::init();
             cx.bind_keys(
-                settings::KeymapFile::load_asset_allow_partial_failure(os_keymap, cx).unwrap(),
+                settings::KeymapFile::load_asset_allow_partial_failure(os_keymap, None, cx).unwrap(),
             );
             language_model::LanguageModelRegistry::test(cx);
         });

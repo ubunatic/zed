@@ -747,6 +747,7 @@ fn load_default_keymap(cx: &mut gpui::TestAppContext) {
         cx.bind_keys(
             settings::KeymapFile::load_asset_allow_partial_failure(
                 settings::DEFAULT_KEYMAP_PATH,
+                None,
                 cx,
             )
             .expect("failed to load default keymap"),
