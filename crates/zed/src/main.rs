@@ -739,6 +739,7 @@ fn main() {
         outline_panel::init(cx);
         tasks_ui::init(cx);
         snippets_ui::init(cx);
+        title_bar::init(cx);
         #[cfg(feature = "collab")]
         channel::init(&app_state.client.clone(), app_state.user_store.clone(), cx);
         search::init(cx);

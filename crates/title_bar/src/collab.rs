@@ -38,7 +38,10 @@ pub fn toggle_screen_sharing(
     window: &mut Window,
     cx: &mut App,
 ) {
-    let call = ActiveCall::global(cx).read(cx);
+    let Some(active_call) = ActiveCall::try_global(cx) else {
+        return;
+    };
+    let call = active_call.read(cx);
     let toggle_screen_sharing = match screen {
         Ok(screen) => {
             let Some(room) = call.room().cloned() else {
@@ -90,7 +93,10 @@ pub fn toggle_screen_sharing(
 }
 
 pub fn toggle_mute(cx: &mut App) {
-    let call = ActiveCall::global(cx).read(cx);
+    let Some(active_call) = ActiveCall::try_global(cx) else {
+        return;
+    };
+    let call = active_call.read(cx);
     if let Some(room) = call.room().cloned() {
         room.update(cx, |room, cx| {
             let operation = if room.is_muted() {
@@ -110,8 +116,10 @@ pub fn toggle_mute(cx: &mut App) {
 }
 
 pub fn toggle_deafen(cx: &mut App) {
-    if let Some(room) = ActiveCall::global(cx).read(cx).room().cloned() {
-        room.update(cx, |room, cx| room.toggle_deafen(cx));
+    if let Some(active_call) = ActiveCall::try_global(cx) {
+        if let Some(room) = active_call.read(cx).room().cloned() {
+            room.update(cx, |room, cx| room.toggle_deafen(cx));
+        }
     }
 }
 
@@ -146,7 +154,10 @@ impl TitleBar {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let room = ActiveCall::global(cx).read(cx).room().cloned();
+        let Some(active_call) = ActiveCall::try_global(cx) else {
+            return h_flex().id("collaborator-list");
+        };
+        let room = active_call.read(cx).room().cloned();
         let current_user = self.user_store.read(cx).current_user();
         let client = self.client.clone();
         let project_id = self.project.read(cx).remote_id();
@@ -337,7 +348,10 @@ impl TitleBar {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
-        let Some(room) = ActiveCall::global(cx).read(cx).room().cloned() else {
+        let Some(active_call) = ActiveCall::try_global(cx) else {
+            return Vec::new();
+        };
+        let Some(room) = active_call.read(cx).room().cloned() else {
             return Vec::new();
         };
 
