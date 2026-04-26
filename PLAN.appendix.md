@@ -35,6 +35,8 @@ When gating initializations in `main.rs`, ensure that the following calls are wr
 - `collab_ui::init`
 - `notifications::init` (This specific `init` belongs to the collab store)
 
+**CRITICAL:** `title_bar::init(cx)` must **NOT** be wrapped. It was previously nested in `collab_ui::init`, which caused the title bar to vanish when the `collab` feature was disabled. It has been moved to a mandatory initialization path.
+
 ## 6. Testing Strategy
 Zed's integration tests (especially in `crates/collab`) rely heavily on `TestServer` and multi-client orchestration.
 - **Validation**: Use `cargo check -p zed` as the primary sanity check.
@@ -42,24 +44,16 @@ Zed's integration tests (especially in `crates/collab`) rely heavily on `TestSer
 
 ## 7. Known Risks & Overlooked Issues
 - **Global Panics**: Code calling `ActiveCall::global(cx)` in a non-collab build will panic if `call::init` isn't called. Always prefer `ActiveCall::try_global(cx)` if it exists.
-- **Title Bar Rendering**: Ensure `crates/title_bar` doesn't attempt to render call status if the `collab` feature is disabled.
-- **`git status`**: 
-```
-On branch worktree-disable-features
-Changes not staged for commit:
-  (use "git add <file>..." to update what will be committed)
-  (use "git restore <file>..." to discard changes in working directory)
-        modified:   crates/notifications/Cargo.toml
-        modified:   crates/notifications/src/notification_store.rs
-        modified:   crates/notifications/src/notifications.rs
-        modified:   crates/zed/Cargo.toml
-        modified:   crates/zed/src/main.rs
-        modified:   crates/zed/src/zed.rs
-        modified:   crates/zed/src/zed/app_menus.rs
-        modified:   crates/zed/src/zed/open_listener.rs
+- **Title Bar Initialization**: Decoupling `title_bar::init` from `collab_ui` is essential for features to be disabled safely.
 
-Untracked files:
-  (use "git add <file>..." to include in what will be committed)
-        PLAN.appendix.md
-        PLAN.md
+## 8. Preventing Keymap Panics
+When a feature like `collab` is disabled, actions registered by that feature (e.g., `collab_panel::ToggleFocus`) will be missing from the `Action` registry. Default keymaps that reference these actions would normally cause a panic on startup if `unwrap()` is used on the result of `KeymapFile::load_asset`.
+- **Solution:** Use `KeymapFile::load_asset_allow_partial_failure(path, cx)` instead of `load_asset`. This method allows the keymap to load even if some actions are unknown, preventing a fatal crash while allowing the rest of the keymap to function.
+
+## 9. `visual_test_runner` Compatibility
+The `zed_visual_test_runner` binary (in `crates/zed/src/visual_test_runner.rs`) performs a full subsystem initialization. Collab-specific initializers like `call::init` must be gated here as well:
+```rust
+#[cfg(feature = "collab")]
+call::init(app_state.client.clone(), app_state.user_store.clone(), cx);
 ```
+Failure to do so will result in compilation errors when building visual tests with the `collab` feature disabled.
