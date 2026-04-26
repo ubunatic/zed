@@ -11,7 +11,6 @@
 .blob_store
 .build
 .claude/settings.local.json
-.gemini/worktrees
 .envrc
 .flatpak-builder
 .idea
@@ -23,7 +22,6 @@
 .swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
 .venv
 .vscode
-.gemini/worktrees
 .wrangler
 .perf-runs
 /assets/*licenses.*
@@ -54,6 +52,3 @@ crates/docs_preprocessor/actions.json
 # where yet, so for now they get generated into a gitignored dir.)
 /crates/zed/test_fixtures/visual_tests/
 
-# Local documentation audit files
-/december-2025-releases.md
-/docs/december-2025-documentation-gaps.md
