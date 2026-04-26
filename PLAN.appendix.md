@@ -57,3 +57,8 @@ The `zed_visual_test_runner` binary (in `crates/zed/src/visual_test_runner.rs`) 
 call::init(app_state.client.clone(), app_state.user_store.clone(), cx);
 ```
 Failure to do so will result in compilation errors when building visual tests with the `collab` feature disabled.
+
+## 10. Handling `ActiveCall` in TitleBar
+When disabling collaboration features, the `TitleBar` will panic if it attempts to access the global `ActiveCall` which is initialized only when collaboration features are enabled.
+- **Solution:** Replace all calls to `ActiveCall::global(cx)` with `ActiveCall::try_global(cx)` within the `TitleBar` and any related collaboration UI code. 
+- **Graceful Handling:** Always wrap the result of `try_global` in a check or an `if let Some(active_call)` block to safely handle cases where the global active call is absent. Do not assume it is always available.
