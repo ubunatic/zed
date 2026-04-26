@@ -45,9 +45,7 @@ concurrency:
 # by the GitHub Teams API.
 jobs:
   assign-reviewers:
-    if: >-
-      github.repository == 'zed-industries/zed' &&
-      (github.event.action == 'ready_for_review' || github.event.pull_request.draft == false)
+    if: ${{ github.repository == 'zed-industries/zed' }}
     runs-on: ubuntu-latest
     steps:
       - name: Generate app token
