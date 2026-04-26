@@ -12,6 +12,7 @@ default-run = "zed"
 workspace = true
 
 [features]
+default = ["collab"]
 collab = [
     "dep:call",
     "dep:channel",
