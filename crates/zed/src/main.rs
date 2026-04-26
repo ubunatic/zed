@@ -1257,6 +1257,19 @@ fn handle_open_request(request: OpenRequest, app_state: Arc<AppState>, cx: &mut 
                 })
                 .detach_and_log_err(cx);
             }
+            #[cfg(not(feature = "collab"))]
+            OpenRequestKind::CollabLinkUnsupported => {
+                struct CollabUnsupportedToast;
+                workspace::with_active_or_new_workspace(cx, |workspace, _window, cx| {
+                    workspace.show_toast(
+                        Toast::new(
+                            NotificationId::unique::<CollabUnsupportedToast>(),
+                            "Collaboration links are not supported in this build.",
+                        ),
+                        cx,
+                    );
+                });
+            }
         }
 
         return;

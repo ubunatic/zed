@@ -81,6 +81,8 @@ pub enum OpenRequestKind {
     GitCommit {
         sha: String,
     },
+    #[cfg(not(feature = "collab"))]
+    CollabLinkUnsupported,
 }
 
 impl std::fmt::Debug for OpenRequestKind {
@@ -118,6 +120,8 @@ impl std::fmt::Debug for OpenRequestKind {
                 .field("repo_url", repo_url)
                 .finish(),
             Self::GitCommit { sha } => f.debug_struct("GitCommit").field("sha", sha).finish(),
+            #[cfg(not(feature = "collab"))]
+            Self::CollabLinkUnsupported => write!(f, "CollabLinkUnsupported"),
         }
     }
 }
@@ -202,7 +206,9 @@ impl OpenRequest {
                         this.open_channel_notes.push((channel_id, heading));
                     }
                     #[cfg(not(feature = "collab"))]
-                    _ => {}
+                    _ => {
+                        this.kind = Some(OpenRequestKind::CollabLinkUnsupported);
+                    }
                 }
             } else {
                 log::error!("unhandled url: {}", url);
