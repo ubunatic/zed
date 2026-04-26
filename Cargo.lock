@@ -18191,6 +18191,7 @@ dependencies = [
  "smallvec",
  "telemetry",
  "theme",
+ "theme_settings",
  "ui",
  "util",
  "windows 0.61.3",
