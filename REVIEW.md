@@ -37,5 +37,5 @@ To make this PR ready for merging, the following changes are required:
 #### **5. Test Suite Validation**
 * **Gate Existing Tests**: Many integration tests in `crates/zed` and `crates/workspace` assume a collaboration server is available. These need to be gated with `#[cfg(feature = "collab")]` or updated to use mocks when the feature is disabled.
 
-#### **6. Logic Refinement**
-* **`OpenRequest` Handling**: In `open_listener.rs`, ensure that logic attempting to handle `ZedLink::Channel` or `open_channel_notes` provides a helpful error message to the user if they try to use a collaboration link in a non-collaboration build, rather than silently failing.
+#### **6. Logic Refinement** ✅ Done
+* **`OpenRequest` Handling**: Implemented — `OpenRequestKind::CollabLinkUnsupported` is set in `open_listener.rs` and handled in `main.rs` with a toast: *"Collaboration links are not supported in this build."*
