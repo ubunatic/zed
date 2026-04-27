@@ -228,3 +228,6 @@ None new this session. All previously identified improvements are now implemente
   `cargo check ... &` calls in sub-agents with `script/bg-check <crate>` + Monitor until-loop.
 - The `tools:` preload section in ROUTINE.yaml should be tested in the next session to confirm
   it actually reduces ToolSearch round-trips at startup.
+- **`gh` default repo**: `gh pr create` targets `upstream` (zed-industries/zed) by default.
+  Run `gh repo set-default ubunatic/zed` once per clone to point all `gh` commands at the fork.
+  This is stored in `.git/config` and does not affect `git remote` or `git fetch upstream`.
