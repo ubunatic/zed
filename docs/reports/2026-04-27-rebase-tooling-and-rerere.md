@@ -27,4 +27,4 @@ Set up durable rebase infrastructure for the long-lived `develop` fork of `zed-i
 ## Open Questions
 
 - [x] Should `script/rebase-onto-main` automatically run `script/sync-rerere save` and commit after a clean rebase? Currently the agent must do this manually after any conflict is resolved. -> save but not commit
-- [ ] `ROUTINE.yaml` uses a custom `if: REBASE is true` syntax — depends on the harness interpreting this correctly; worth validating once the first scheduled run fires.
+- [x] `ROUTINE.yaml` uses a custom `if: REBASE is true` syntax — depends on the harness interpreting this correctly; worth validating once the first scheduled run fires -> use `guard: |` which should be more robust and self-explanatory
