@@ -38,7 +38,11 @@ startup:
   on_conflict:
     - resolve conflicts only if they are simple and you are confident about the resolution
     - do not attempt to resolve complex conflicts where your confidence is low
-    - if you could not resolve the conflicts, **stop and let the human resolve**, saves rerere, and pushes
+    - if you could not resolve the conflicts, **stop and let the human resolve**
+
+post_rebase:
+  - checkout your original development branch (if any) or create a new one for the task
+  - reset your branch to develop to start with a clean state
 
 agentic_workflow:
   - Work in an agentic loop (plan, build/test, review)
