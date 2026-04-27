@@ -214,8 +214,21 @@ impl KeymapFile {
             } if key_bindings.is_empty() => {
                 anyhow::bail!("Error loading built-in keymap \"{asset_path}\": {error_message}",)
             }
-            KeymapFileLoadResult::Success { mut key_bindings, .. }
-            | KeymapFileLoadResult::SomeFailedToLoad { mut key_bindings, .. } => {
+            KeymapFileLoadResult::SomeFailedToLoad {
+                mut key_bindings,
+                error_message,
+            } => {
+                log::warn!(
+                    "Some keybindings failed to load from \"{asset_path}\": {error_message}"
+                );
+                if let Some(source) = source {
+                    for key_binding in &mut key_bindings {
+                        key_binding.set_meta(source.meta());
+                    }
+                }
+                Ok(key_bindings)
+            }
+            KeymapFileLoadResult::Success { mut key_bindings } => {
                 if let Some(source) = source {
                     for key_binding in &mut key_bindings {
                         key_binding.set_meta(source.meta());
