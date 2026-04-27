@@ -17,18 +17,21 @@ This plan addresses the technical debt and missing robustness identified in the 
 ## Phase 2: Robust Keymap & Action Handling
 *Goal: Prevent runtime panics when users have collaboration-specific keybinds in a non-collab build.*
 
-- [ ] **2.1 Implement Partial Keymap Loading:**
-    - Modify `crates/gpui/src/keymap.rs` (or the relevant keymap loader in `settings`).
-    - Add/Update `load_asset_allow_partial_failure`.
-    - **Logic:** When an action is not found (because the crate/feature providing it is missing), log a warning instead of returning an `Err` that halts the keymap initialization.
-- [ ] **2.2 Audit Default Keymaps:** Ensure that `assets/keymaps/default.json` doesn't trigger "missing action" errors when `collab` is disabled.
+- [x] **2.1 Implement Partial Keymap Loading:**
+    - `load_asset_allow_partial_failure` is implemented in `crates/settings/src/keymap_file.rs`.
+    - Returns successfully with valid bindings when some fail to load; now also emits `log::warn!` for the partial-failure case so missing collab actions are visible in logs without halting startup.
+- [x] **2.2 Audit Default Keymaps:**
+    - Default keymaps (`default-macos.json`, `default-linux.json`, `default-windows.json`) contain `collab_panel::*` actions, but these are scoped to `CollabPanel` context (active only when that panel is focused).
+    - The global `collab_panel::ToggleFocus` binding is handled gracefully by `load_asset_allow_partial_failure`, which skips unresolvable actions and emits a warning rather than an error.
 
 ## Phase 3: UI & UX Refinement
 *Goal: Ensure the "Lean" UI feels intentional, not "broken."*
 
-- [ ] **3.1 Strict UI Gating:**
-    - Audit `crates/zed/src/main.rs` and `crates/workspace`.
-    - Ensure "Join Channel" or "Share" menu items are strictly wrapped in `#[cfg(feature = "collab")]`.
+- [x] **3.1 Strict UI Gating:**
+    - Audited `crates/zed/src/main.rs` and `crates/zed/src/zed/app_menus.rs`.
+    - "Collab Panel" menu item is gated with `#[cfg(feature = "collab")]`; no ungated "Join Channel" or "Share" menu items exist in the application menus.
+    - All collab-specific imports and initialization in `main.rs` are guarded with `#[cfg(feature = "collab")]`.
+    - Note: `crates/title_bar` has `call`, `channel`, and `livekit_client` as unconditional dependencies — the title bar's collab rendering (screen-share button, collaborator list) is not feature-gated. This is a remaining concern for a full lean build but is out of scope for the current phase.
 - [x] **3.2 ZedLink Error Handling:**
     - `OpenRequestKind::CollabLinkUnsupported` variant exists in `open_listener.rs`.
     - Set via `#[cfg(not(feature = "collab"))]` catch-all arm in the `ZedLink` match.
@@ -50,7 +53,7 @@ This plan addresses the technical debt and missing robustness identified in the 
 * **The "Core" definition:** Ensure we aren't stripping features that users consider "Core" (like some notification types) by mistake when disabling `collab`.
 
 ### Practical Summary/Action Plan
-1.  **Fix the Keymap Panic (2.1):** This is the highest priority technical blocker.
-2.  **Audit keymaps (2.2):** Check `assets/keymaps/default.json` for collab-only actions.
-3.  **UI gating (3.1):** Wrap any remaining collab menu items in `#[cfg(feature = "collab")]`.
+1.  ~~**Fix the Keymap Panic (2.1):** This is the highest priority technical blocker.~~ ✅ Done
+2.  ~~**Audit keymaps (2.2):** Check `assets/keymaps/default.json` for collab-only actions.~~ ✅ Done — partial loading handles them gracefully.
+3.  ~~**UI gating (3.1):** Wrap any remaining collab menu items in `#[cfg(feature = "collab")]`.~~ ✅ Done for menus. Title bar collab module remains ungated (future work).
 4.  **Test (4.1):** Validate `cargo build --no-default-features` succeeds and binary shrinks.
