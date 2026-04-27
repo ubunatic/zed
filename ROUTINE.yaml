@@ -9,6 +9,14 @@ task: |
   See PLAN.* files and REVIEW.md file on the `develop` branch
   Do one **simple** item and create a PR in ubunatic/zed against branch: `develop`
 
+  Before picking a task, audit the PLAN.* files:
+  - Read the code and check if any unchecked items are already implemented
+  - Mark any already-done items as `[x]` in the PLAN files before selecting your task
+
+  After completing your task (or as its own PR if no coding task is done):
+  - Update PLAN.* files: mark completed items, remove outdated notes
+  - Update REVIEW.md to reflect current implementation status
+
 rules:
   - This is a fork of Zed
   - Ignore CI jobs; they are disabled
@@ -74,6 +82,15 @@ harness:
   - live-test technical harness ideas with an idempotent  `startup.sh` (not comitted; post the file as extra PR comment)
   - make sure to not bleed  `cat << EOF` into comments (use files)
 
+cleanup:
+  desc: Final step — always run this, even if no coding task was done
+  run: |
+    - Audit all PLAN.* files: mark items that are already implemented as `[x]`
+    - Remove or update notes in PLAN.* files that no longer apply
+    - Update REVIEW.md to reflect the current state of the implementation
+    - Commit and push any PLAN/REVIEW changes to `develop` (direct push ok for doc-only changes)
+
 expected_outcomes: |
-  1. PR against branch `develop`  in ubunatic/zed fork. Or PR skipped if tasks aborted.
-  2. Harness Assessment/Report here in the chat (and, if PR was posted,  as PR comment)
+  1. PR against branch `develop` in ubunatic/zed fork. Or PR skipped if task aborted.
+  2. PLAN.* and REVIEW.md on `develop` are up to date with current implementation status.
+  3. Harness Assessment/Report here in the chat (and, if PR was posted, as PR comment)

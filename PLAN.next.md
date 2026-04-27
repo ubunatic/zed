@@ -29,9 +29,10 @@ This plan addresses the technical debt and missing robustness identified in the 
 - [ ] **3.1 Strict UI Gating:**
     - Audit `crates/zed/src/main.rs` and `crates/workspace`.
     - Ensure "Join Channel" or "Share" menu items are strictly wrapped in `#[cfg(feature = "collab")]`.
-- [ ] **3.2 ZedLink Error Handling:**
-    - In `crates/zed/src/open_listener.rs`, locate the `ZedLink::Channel` match arms.
-    - **Change:** Instead of just disabling the logic, add a `#[cfg(not(feature = "collab"))]` arm that triggers a `Toast` or notification: *"Collaboration features are disabled in this build."*
+- [x] **3.2 ZedLink Error Handling:**
+    - `OpenRequestKind::CollabLinkUnsupported` variant exists in `open_listener.rs`.
+    - Set via `#[cfg(not(feature = "collab"))]` catch-all arm in the `ZedLink` match.
+    - Handled in `main.rs` with a `Toast`: *"Collaboration links are not supported in this build."*
 
 ## Phase 4: Verification & CI Integration
 *Goal: Maintain the "Lean" build over time.*
@@ -49,7 +50,7 @@ This plan addresses the technical debt and missing robustness identified in the 
 * **The "Core" definition:** Ensure we aren't stripping features that users consider "Core" (like some notification types) by mistake when disabling `collab`.
 
 ### Practical Summary/Action Plan
-1.  **Cleanup first:** Run `rm PLAN*.md` and fix `.gitignore`.
-2.  **Fix the Keymap Panic:** This is the highest priority technical blocker.
-3.  **Set Defaults:** Make sure `cargo build` still results in a full-featured Zed for standard users.
-4.  **Test:** Validate that the binary size actually shrinks as expected.
+1.  **Fix the Keymap Panic (2.1):** This is the highest priority technical blocker.
+2.  **Audit keymaps (2.2):** Check `assets/keymaps/default.json` for collab-only actions.
+3.  **UI gating (3.1):** Wrap any remaining collab menu items in `#[cfg(feature = "collab")]`.
+4.  **Test (4.1):** Validate `cargo build --no-default-features` succeeds and binary shrinks.
