@@ -24,6 +24,10 @@ rules:
   - Do not look upstream unless told
   - avoid heredocs for long content, create a temp file (e.g., when posting PR comment)
 
+tools:
+  preload: "select:TaskCreate,TaskUpdate,Monitor,mcp__github__create_pull_request,mcp__github__list_pull_requests,mcp__github__get_file_contents"
+  note: Batch-load these at session start with one ToolSearch call to avoid 6+ round-trips.
+
 startup:
   desc: Before you start any coding task, run this step
   guard: |
@@ -56,8 +60,10 @@ post_rebase:
   - >
     If you already have a working branch (e.g. from a prior session), check it out and reuse it.
     Otherwise create a new branch now (after the rebase, not before).
-  - branch naming: <agent-name>/<descriptive-slug>
-    e.g. claude/fix-keymap-partial-load or claude/jumpy-tiger-12345 as fallback
+  - branch naming:
+      - reuse the session's designated branch if one exists (e.g. claude/sharp-shannon-PMlMo)
+      - otherwise create <agent-name>/<descriptive-slug> (e.g. claude/fix-keymap-partial-load or claude/jumpy-tiger-12345 as fallback).
+      - Do NOT create a new branch if one already exists for this session.
   - reset your branch to develop to start with a clean state
 
 agentic_workflow:
@@ -100,8 +106,10 @@ cleanup:
     - For each unchecked item, verify current implementation status in the codebase
     - Mark already-implemented items as `[x]`; remove or update notes that no longer apply
     - Update REVIEW.md to reflect the current state of the implementation
-    - Commit PLAN.* and REVIEW.md changes directly to develop (doc-only push is fine)
-    - Push develop to origin
+    - Append a dated entry to HARNESS.md summarizing token burn, friction points, what worked well, and any new script ideas
+    - Commit PLAN.*, REVIEW.md, and HARNESS.md on the feature branch (same commit as code, or a follow-up commit on the same branch)
+    - Do NOT push doc-only changes directly to develop — branch switches will revert working-tree files
+    - Push the feature branch and include the doc changes in the PR
 
 expected_outcomes: |
   1. PR against branch `develop` in ubunatic/zed fork. Or PR skipped if task aborted.
