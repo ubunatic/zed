@@ -47,7 +47,7 @@ compilation. Total wasted compile time: ~60s.
 
 ### Ideas for improvement
 
-#### 1. Pre-warm deferred tools in startup
+#### 1. Pre-warm deferred tools in startup ✅ Done
 ROUTINE.yaml currently has no mention of deferred MCP tools. The first 3–4 tool calls of every
 session are `ToolSearch` lookups for `TodoWrite`, `Monitor`, `mcp__github__*`, etc. A startup
 note listing the commonly needed tool names would let the agent batch-load them in one call.
@@ -55,7 +55,7 @@ note listing the commonly needed tool names would let the agent batch-load them 
 **Suggestion:** add a `tools:` section to ROUTINE.yaml listing tool names that are always needed,
 so the agent loads them upfront in a single `ToolSearch select:A,B,C` call.
 
-#### 2. Avoid double cargo check via a sentinel file
+#### 2. Avoid double cargo check via a sentinel file ✅ Done
 Background tasks write output to a temp file, but the file may not exist yet when the Monitor
 `until` loop starts. Use a wrapper that creates the file before running the command:
 
@@ -70,7 +70,7 @@ echo "DONE:$?" >> "$out"
 
 Then the `until` loop can reliably detect both "still running" and "finished" states.
 
-#### 3. Commit docs and code in the same feature branch commit
+#### 3. Commit docs and code in the same feature branch commit ✅ Done
 The current cleanup pattern commits PLAN/REVIEW doc updates directly to `develop`. When the
 feature branch also modifies those files, Git's branch switch reverts them, requiring re-applying
 via `git checkout <branch> -- <files>`. This is fragile.
@@ -79,7 +79,7 @@ via `git checkout <branch> -- <files>`. This is fragile.
 lands everything together. The `develop` branch stays at the merge commit rather than receiving a
 separate doc-only push. Update the `cleanup` step in ROUTINE.yaml accordingly.
 
-#### 4. Encode the "audit first" pattern more explicitly
+#### 4. Encode the "audit first" pattern more explicitly ✅ Done (via abort_criteria + plan-audit script)
 The PLAN.next.md audit step (check if unchecked items are already done before picking a task) is
 mentioned in ROUTINE.yaml but not emphasized enough. Agents sometimes skip it and pick a task
 without checking. The audit in this session revealed that 2.1, 2.2, and 3.1 were largely done,
@@ -89,7 +89,7 @@ saving a wasted implementation attempt.
 marking already-done items, if no simple task remains, do the doc-only commit and stop — do not
 force a coding task.
 
-#### 5. Explore agent prompt should bundle related questions
+#### 5. Explore agent prompt should bundle related questions ✅ Done (noted in ROUTINE.yaml agentic_workflow)
 The initial Explore agent call asked three separate questions (2.1, 2.2, 3.1). This worked well,
 but the follow-up verification calls in the main thread (title_bar Cargo.toml, keymap_file.rs
 details) could have been part of the original prompt. When doing a pre-task audit, include all
@@ -100,33 +100,33 @@ files mentioned in the PLAN items in one agent call.
 ### Suggestions for MD file updates
 
 #### ROUTINE.yaml
-- Add a `tools:` section listing commonly deferred tools (TodoWrite, Monitor,
+- ✅ Add a `tools:` section listing commonly deferred tools (TodoWrite, Monitor,
   `mcp__github__list_pull_requests`, `mcp__github__create_pull_request`, etc.) so the agent
   loads them in one batch at session start.
-- Change the `cleanup` step to commit PLAN/REVIEW changes on the feature branch rather than
+- ✅ Change the `cleanup` step to commit PLAN/REVIEW changes on the feature branch rather than
   directly to `develop`, so branch switching doesn't cause working-tree confusion.
-- Add a step: "Append a dated entry to HARNESS.md summarizing token burn, friction points, and
+- ✅ Add a step: "Append a dated entry to HARNESS.md summarizing token burn, friction points, and
   any new script ideas. Include this file in the same PR as the coding change."
-- Clarify that `post_rebase.branch naming` should reuse the session's designated branch
+- ✅ Clarify that `post_rebase.branch naming` should reuse the session's designated branch
   (`claude/sharp-shannon-PMlMo` in this case) rather than creating a new one, to avoid orphaned
   branches.
 
 #### PLAN.next.md
-- Add a "Known gaps / out of scope" section so future agents don't re-audit the same already-
+- ✅ Add a "Known gaps / out of scope" section so future agents don't re-audit the same already-
   noted issues (e.g. `crates/title_bar` unconditional `call`/`channel` deps). This avoids
   duplicating audit work across sessions.
-- After all items in a phase are done, add a phase-level `✅ Phase N complete` marker so the
+- ✅ After all items in a phase are done, add a phase-level `✅ Phase N complete` marker so the
   agent can skip re-reading that phase's items.
 
 #### REVIEW.md
-- Add a "Last audited" date field at the top so it's clear when the review was last updated and
+- ✅ Add a "Last audited" date field at the top so it's clear when the review was last updated and
   agents know whether to re-audit or trust it.
 
 ---
 
 ### Suggestions for new scripts
 
-#### `script/lean-check`
+#### `script/lean-check` ✅ Done
 Runs `cargo check --no-default-features` to verify the lean (no-collab) build compiles. Should
 be idempotent and fast (~30s on warm cache).
 
@@ -138,7 +138,7 @@ cargo check -p zed --no-default-features -q
 echo "Lean build OK."
 ```
 
-#### `script/plan-audit`
+#### `script/plan-audit` ✅ Done
 Prints all unchecked `[ ]` items from PLAN.*.md files so agents get a quick summary without
 reading every file. Useful as the first step of each session.
 
@@ -148,7 +148,7 @@ set -euo pipefail
 grep -rn '^\- \[ \]' PLAN.*.md 2>/dev/null || echo "No unchecked items found."
 ```
 
-#### `script/bg-check`
+#### `script/bg-check` ✅ Done
 Wraps `cargo check` for use as a background task with a reliable sentinel, avoiding the
 "empty output file" race condition described above.
 
@@ -176,3 +176,55 @@ Then in the Monitor loop: `until grep -q '^EXIT:' "$out_file"; do sleep 1; done`
 - The `crates/title_bar` unconditional dependency on `call`/`channel`/`livekit_client` is a
   known gap not yet addressed. Gating those would require adding a `collab` feature to
   `title_bar`'s Cargo.toml and wrapping the relevant render methods.
+
+---
+
+## Session: 2026-04-27 — Harness improvements (PR #8)
+
+### Task completed
+Implemented all improvement suggestions from the previous HARNESS.md session entry:
+- Updated `ROUTINE.yaml`: added `tools:` preload section, fixed cleanup to commit on feature branch,
+  added HARNESS.md update step, clarified branch reuse in `post_rebase`.
+- Updated `PLAN.next.md`: added `✅ Phase N complete` markers for phases 1–3, added "Known Gaps /
+  Out of Scope" section to prevent re-auditing deferred issues each session.
+- Updated `REVIEW.md`: added *Last audited* date field at top.
+- Created three new scripts: `script/lean-check`, `script/plan-audit`, `script/bg-check`.
+
+---
+
+### Token burn analysis
+
+| Area | Rough cost | Notes |
+|------|-----------|-------|
+| ToolSearch (deferred tools) | Low | Only 1 batch load needed (ExitPlanMode schema). Pre-warm section in ROUTINE.yaml should eliminate this for future sessions. |
+| Explore sub-agent | Low | One agent call read ROUTINE.yaml, PLAN.next.md, REVIEW.md, and script/ listing in parallel. |
+| Plan mode | Low | Plan file written cleanly in one pass; no iteration needed. |
+| File edits | Low | 6 edits + 3 writes, all targeted. No compile step. |
+
+**No significant waste this session.** Doc-only task with clear scope.
+
+---
+
+### What worked well
+
+- **plan-audit script** confirms itself immediately: running `script/plan-audit` after editing
+  PLAN.next.md showed exactly the two expected unchecked items (4.1, 4.2).
+- **Parallel agent reads** in the Explore call retrieved all three source files at once.
+- **No compilation** needed — doc+script task completed end-to-end without cargo.
+
+---
+
+### Ideas for improvement
+
+None new this session. All previously identified improvements are now implemented.
+
+---
+
+### Notes for next session
+
+- Remaining open PLAN items: **4.1** (lean build) and **4.2** (CI snippet). Use `script/lean-check`
+  for 4.1. Both are now clearly described in PLAN.next.md Phase 4.
+- `script/bg-check` is ready to use for any future background cargo checks — replace raw
+  `cargo check ... &` calls in sub-agents with `script/bg-check <crate>` + Monitor until-loop.
+- The `tools:` preload section in ROUTINE.yaml should be tested in the next session to confirm
+  it actually reduces ToolSearch round-trips at startup.

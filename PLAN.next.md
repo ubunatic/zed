@@ -14,6 +14,8 @@ This plan addresses the technical debt and missing robustness identified in the 
     - Feature propagation is correct: `notifications/collab` activates the channel dep; `collab_ui` has no `collab` sub-feature and is correctly all-or-nothing via `dep:collab_ui`.
 - [x] **1.4 Profile Consolidation:** Renamed `release-lean` → `release-min` in `Cargo.toml` and updated `.cargo/config.toml` aliases. The profile settings differ meaningfully from `release` (strips symbols, disables LTO, `panic = "abort"`) so it warrants a named profile rather than a `CARGO_FLAGS` workaround.
 
+✅ Phase 1 complete
+
 ## Phase 2: Robust Keymap & Action Handling
 *Goal: Prevent runtime panics when users have collaboration-specific keybinds in a non-collab build.*
 
@@ -23,6 +25,8 @@ This plan addresses the technical debt and missing robustness identified in the 
 - [x] **2.2 Audit Default Keymaps:**
     - Default keymaps (`default-macos.json`, `default-linux.json`, `default-windows.json`) contain `collab_panel::*` actions, but these are scoped to `CollabPanel` context (active only when that panel is focused).
     - The global `collab_panel::ToggleFocus` binding is handled gracefully by `load_asset_allow_partial_failure`, which skips unresolvable actions and emits a warning rather than an error.
+
+✅ Phase 2 complete
 
 ## Phase 3: UI & UX Refinement
 *Goal: Ensure the "Lean" UI feels intentional, not "broken."*
@@ -36,6 +40,8 @@ This plan addresses the technical debt and missing robustness identified in the 
     - `OpenRequestKind::CollabLinkUnsupported` variant exists in `open_listener.rs`.
     - Set via `#[cfg(not(feature = "collab"))]` catch-all arm in the `ZedLink` match.
     - Handled in `main.rs` with a `Toast`: *"Collaboration links are not supported in this build."*
+
+✅ Phase 3 complete
 
 ## Phase 4: Verification & CI Integration
 *Goal: Maintain the "Lean" build over time.*
@@ -57,3 +63,12 @@ This plan addresses the technical debt and missing robustness identified in the 
 2.  ~~**Audit keymaps (2.2):** Check `assets/keymaps/default.json` for collab-only actions.~~ ✅ Done — partial loading handles them gracefully.
 3.  ~~**UI gating (3.1):** Wrap any remaining collab menu items in `#[cfg(feature = "collab")]`.~~ ✅ Done for menus. Title bar collab module remains ungated (future work).
 4.  **Test (4.1):** Validate `cargo build --no-default-features` succeeds and binary shrinks.
+
+---
+
+## Known Gaps / Out of Scope
+
+These issues are noted but explicitly deferred — do not re-audit them each session:
+
+- **`crates/title_bar` collab deps**: `call`, `channel`, and `livekit_client` are unconditional dependencies in `title_bar`'s Cargo.toml. Gating them requires adding a `collab` feature to `title_bar` and wrapping the screen-share / collaborator-list render methods. Tracked as future work.
+- **Test suite gating (4.2 prerequisite)**: Many integration tests assume a collaboration server. Full gating is out of scope until upstream review begins.

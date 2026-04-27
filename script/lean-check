@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+echo "Checking lean build (--no-default-features)..."
+cargo check -p zed --no-default-features -q
+echo "Lean build OK."
