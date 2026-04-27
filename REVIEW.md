@@ -3,7 +3,7 @@ As a core Zed developer, I find this PR to be a highly valuable initiative for i
 ### **Reaction and Potential Impact**
 This is a sophisticated contribution that correctly identifies the deep integration of collaboration features across the codebase.
 
-* **Binary Size and Build Times**: The introduction of the `release-lean` profile and the `collab` feature flag will significantly reduce binary bloat and memory usage during compilation.
+* **Binary Size and Build Times**: The introduction of the `release-min` profile and the `collab` feature flag will significantly reduce binary bloat and memory usage during compilation.
 * **Decoupling Success**: Moving `title_bar::init` out of `collab_ui` is a critical structural fix that prevents the UI from breaking when collaboration is disabled.
 * **Stability**: Shifting from `ActiveCall::global` to `ActiveCall::try_global` is the correct approach to prevent runtime panics in a non-collab build.
 
@@ -11,7 +11,7 @@ This is a sophisticated contribution that correctly identifies the deep integrat
 To make the best use of this work, we can:
 * **CI Optimization**: Integrate a "lean" build check into our CI pipeline to ensure that future changes do not accidentally introduce mandatory collaboration dependencies.
 * **Enterprise Distribution**: Use this feature to provide a "Standard" vs. "Collaborative" version of Zed for environments with strict networking policies.
-* **Performance Benchmarking**: Use the `release-lean` profile to establish a baseline for "core" editor performance.
+* **Performance Benchmarking**: Use the `release-min` profile to establish a baseline for "core" editor performance.
 
 ---
 
@@ -20,19 +20,19 @@ To make the best use of this work, we can:
 To make this PR ready for merging, the following changes are required:
 
 #### **1. Documentation and Cleanup**
-* **Remove Plan Files**: The `PLAN.md`, `PLAN.appendix.md`, and `PLAN.issue.md` files should be moved to the PR description or a tracking issue. They should not be merged into the main branch as they clutter the repository root.
-* **Gitignore Hygiene**: The `.gemini/worktrees` entries in `.gitignore` should be removed unless they are part of a broader, approved toolset change for the whole team.
+* **Fork-management files**: Files like `PLAN.next.md`, `REVIEW.md`, `ROUTINE.yaml`, `REBASE.md`, `AGENTS.md`, and `GEMINI.md` are reasonable to keep on the `develop` branch as fork-maintenance conveniences — they help drive incremental work toward upstream readiness and do not affect the build. They must be removed from any PR submitted to `zed-industries/zed` upstream, but there is no need to purge them from `develop` itself.
+* **Gitignore Hygiene**: The `.gemini/worktrees` entries in `.gitignore` should be removed before any upstream PR unless they are part of a broader toolset change approved by the team.
 
-#### **2. Feature Flag Defaults**
-* **Maintain Compatibility**: In `crates/zed/Cargo.toml`, the `collab` feature should be added to the `default` features list. Merging it as "disabled by default" would be a breaking change for the majority of our users who expect collaboration features to be present.
-* **Crate Gating**: Ensure that the `collab` feature in the `zed` crate correctly propagates to the `notifications` and `collab_ui` crates.
+#### **2. Feature Flag Defaults** ✅ Done
+* **Maintain Compatibility**: `collab` is already in the `default` features list in `crates/zed/Cargo.toml` — standard builds remain fully featured.
+* **Crate Gating**: Feature propagation is correct: `notifications/collab` activates the channel dependency; `collab_ui` is gated all-or-nothing via `dep:collab_ui`.
 
 #### **3. Keymap and Action Handling**
 * **Implement Partial Keymap Loading**: As noted in your appendix, you must implement `KeymapFile::load_asset_allow_partial_failure`. This is essential to prevent the "Missing Action" panics described in your issue report.
 * **Dynamic UI Elements**: The "Collab Panel" toggle and other collaboration-specific menu items must be strictly wrapped in `#[cfg(feature = "collab")]` to ensure they don't appear as "dead" buttons in the UI.
 
-#### **4. Build Profile Integration**
-* **Standardize Profiles**: Instead of a new `release-lean` profile, consider if these optimizations (like `panic = "abort"` and `strip = "symbols"`) should be applied to our existing release profiles or if this should be a specialized `release-min` profile.
+#### **4. Build Profile Integration** ✅ Done
+* **Standardize Profiles**: The `release-lean` profile has been renamed to `release-min`, which is a better fit for a named specialized profile. The optimizations (`panic = "abort"`, `strip = "symbols"`, no LTO) are meaningfully distinct from the standard `release` profile and warrant their own name.
 
 #### **5. Test Suite Validation**
 * **Gate Existing Tests**: Many integration tests in `crates/zed` and `crates/workspace` assume a collaboration server is available. These need to be gated with `#[cfg(feature = "collab")]` or updated to use mocks when the feature is disabled.
