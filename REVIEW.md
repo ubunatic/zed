@@ -1,3 +1,5 @@
+*Last audited: 2026-04-27*
+
 As a core Zed developer, I find this PR to be a highly valuable initiative for improving the editor's modularity and performance. Decoupling collaboration features is a frequent request from users who prefer a "lean" or purely local editing experience, and using a feature flag is the idiomatic way to handle this in Rust.
 
 ### **Reaction and Potential Impact**
