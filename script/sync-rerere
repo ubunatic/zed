@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Sync rerere conflict resolution cache between the repo and .git/rr-cache/.
+#
+# Usage:
+#   script/sync-rerere load   # copy rerere-cache/ → .git/rr-cache/ (after checkout)
+#   script/sync-rerere save   # copy .git/rr-cache/ → rerere-cache/ (after resolving a new conflict)
+
+set -euo pipefail
+
+CACHE_DIR="$(git rev-parse --show-toplevel)/rerere-cache"
+GIT_DIR="$(git rev-parse --git-dir)"
+RR_CACHE="$GIT_DIR/rr-cache"
+
+cmd="${1:-}"
+case "$cmd" in
+    load)
+        if [[ ! -d "$CACHE_DIR" ]]; then
+            echo "Nothing to load — rerere-cache/ does not exist."
+            exit 0
+        fi
+        mkdir -p "$RR_CACHE"
+        cp -r "$CACHE_DIR/." "$RR_CACHE/"
+        echo "Loaded $(ls "$CACHE_DIR" | wc -l | tr -d ' ') resolution(s) into $RR_CACHE"
+        ;;
+    save)
+        if [[ ! -d "$RR_CACHE" ]] || [[ -z "$(ls -A "$RR_CACHE" 2>/dev/null)" ]]; then
+            echo "Nothing to save — $RR_CACHE is empty."
+            exit 0
+        fi
+        mkdir -p "$CACHE_DIR"
+        cp -r "$RR_CACHE/." "$CACHE_DIR/"
+        echo "Saved $(ls "$CACHE_DIR" | wc -l | tr -d ' ') resolution(s) to rerere-cache/"
+        echo "Commit rerere-cache/ to share with others."
+        ;;
+    *)
+        echo "Usage: script/sync-rerere load|save"
+        exit 1
+        ;;
+esac
