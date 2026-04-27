@@ -7,12 +7,12 @@ This plan addresses the technical debt and missing robustness identified in the 
 ## Phase 1: Repository Hygiene & Cargo Configuration
 *Goal: Align with upstream project structure and ensure backward compatibility.*
 
-- [ ] **1.1 Revert `.gitignore` changes:** Remove `.gemini/worktrees` and any other non-standard local environment paths.
-- [ ] **1.2 Clean up documentation:** Delete `PLAN.md`, `PLAN.appendix.md`, and `PLAN.issue.md`. (These should be moved to the PR description/GitHub issue).
-- [ ] **1.3 Default Feature Alignment:**
-    - Update `crates/zed/Cargo.toml` to include `collab` in the `default` features array.
-    - Ensure feature propagation: `collab = ["collab_ui/collab", "notifications/collab"]` (verify crate-level dependencies).
-- [ ] **1.4 Profile Consolidation:** Review the `release-lean` profile in `.cargo/config.toml`. If it strictly replicates `release` with fewer features, consider recommending a `CARGO_FLAGS` approach for CI instead of adding a new named profile to the core config.
+- [x] **1.1 Revert `.gitignore` changes:** No non-standard paths found; `.gitignore` is already clean.
+- [x] **1.2 Clean up documentation:** `PLAN.md`, `PLAN.appendix.md`, and `PLAN.issue.md` do not exist on this branch.
+- [x] **1.3 Default Feature Alignment:**
+    - `crates/zed/Cargo.toml` already has `collab` in the `default` features array.
+    - Feature propagation is correct: `notifications/collab` activates the channel dep; `collab_ui` has no `collab` sub-feature and is correctly all-or-nothing via `dep:collab_ui`.
+- [x] **1.4 Profile Consolidation:** Renamed `release-lean` → `release-min` in `Cargo.toml` and updated `.cargo/config.toml` aliases. The profile settings differ meaningfully from `release` (strips symbols, disables LTO, `panic = "abort"`) so it warrants a named profile rather than a `CARGO_FLAGS` workaround.
 
 ## Phase 2: Robust Keymap & Action Handling
 *Goal: Prevent runtime panics when users have collaboration-specific keybinds in a non-collab build.*
