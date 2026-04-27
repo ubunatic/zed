@@ -21,12 +21,11 @@ LOOKUP_DIRS=(
 for dir in "${LOOKUP_DIRS[@]}"
 do if test -f "$dir/zed"
 then BINARY="$dir/zed"
-     OUT_DIR="$dir"
      break
 fi
 done
 
-OUT_DIR="${1:-$OUT_DIR}"
+OUT_DIR="${1:-$HOME/Applications}"
 APP="$OUT_DIR/Zed.app"
 ICON_SRC="crates/zed/resources/app-icon-dev@2x.png"
 
