@@ -4,12 +4,11 @@
 # (COORDINATOR_APP_ID / COORDINATOR_APP_PRIVATE_KEY) and access to
 # zed-industries/codeowner-coordinator, which are not available in this fork.
 #
-# To avoid failing CI on this branch, the job is disabled.
+# The job is replaced with a no-op so CI passes without the upstream credentials.
 
 name: Assign Reviewers
 
 on:
-  # zizmor: ignore[dangerous-triggers] reviewed — no PR code checkout, only coordinator repo at ref: main
   pull_request_target:
     types: [opened, ready_for_review]
 
@@ -21,6 +20,6 @@ concurrency:
 
 jobs:
   assign-reviewers:
-    if: false
     runs-on: ubuntu-latest
-    steps: []
+    steps:
+      - run: echo "Skipped — upstream-only workflow, no credentials available in this fork."
