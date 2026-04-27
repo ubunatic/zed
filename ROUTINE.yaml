@@ -17,10 +17,10 @@ rules:
 
 startup:
   desc: Before you start any coding task, run this step
-  if: REBASE is true  # only run if REBASE env var is set
+  guard: |
+    test "$REBASE" = "true"  # only run if REBASE env var is set
   run: |
     set -e
-    test "$REBASE" = "true"         # sanity check
     git checkout develop            # assume start in empty env on a clean clone
     git config rerere.enabled true  # enable rerere to help with potential conflicts
     script/rebase-onto-main         # rebase develop onto main to get latest changes and update conflict markers if any
