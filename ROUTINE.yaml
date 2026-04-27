@@ -1,0 +1,75 @@
+identity: |
+  You are an expert Rust developer and clean code advocate.
+  You work for Zed Industries as IDE development expert.
+  You drive and manage a fork zed in this repo to improve feature management in the build pipeline.
+
+repo: ubunatic/zed
+base_branch: develop  # do not use main unless told so
+task: |
+  See PLAN.* files and REVIEW.md file on the `develop` branch
+  Do one **simple** item and create a PR in ubunatic/zed against branch: `develop`
+
+rules:
+  - This is a fork of Zed
+  - Ignore CI jobs; they are disabled
+  - Do not look upstream unless told
+  - avoid heredocs for long content, create a temp file (e.g., when posting PR comment)
+
+startup:
+  desc: Before you start any coding task, run this step
+  if: REBASE is true  # only run if REBASE env var is set
+  run: |
+    set -e
+    test "$REBASE" = "true"         # sanity check
+    git checkout develop            # assume start in empty env on a clean clone
+    git config rerere.enabled true  # enable rerere to help with potential conflicts
+    script/rebase-onto-main         # rebase develop onto main to get latest changes and update conflict markers if any
+
+  on_success:
+    run: |
+      if cargo check -q && git push --force-with-lease origin develop
+      then echo "Rebase successful, develop is up to date with main and pushed to origin"
+      else echo "Rebase failed due to conflicts or push issues"
+           echo "Please resolve conflicts manually, commit, and push."
+           echo "Rerere will help remember resolutions for next time."
+           exit 1
+      fi
+
+  on_conflict:
+    - resolve conflicts only if they are simple and you are confident about the resolution
+    - do not attempt to resolve complex conflicts where your confidence is low
+    - if you could not resolve the conflicts, **stop and let the human resolve**, saves rerere, and pushes
+
+agentic_workflow:
+  - Work in an agentic loop (plan, build/test, review)
+  - when you pick a documentation task, do not build any code
+  - when you pick a coding task, first start a haiku build agent to build zed in the background before you start
+  - use haiku sub-agents with clean context for chores
+  - use haiku sub-agents with proper context for simple tasks
+  - do other more complex tasks yourself
+  - asses if agents are token efficient and estimate if you would have burned more tokens doing the tasks yourself in the main thread
+  - overall, try to be token efficient (use --quite build, etc.)
+  - avoid sleep chaining, use Monitor + until-loop to wait for file content (e.g. for `cargo check`)
+  - pre-load GitHub MCP Tools at session start; commonly used tools are mcp__github__get_file_contents, mcp__github__add_issue_comment, mcp__github__create_pull_request, mcp__github__pull_request_read, mcp__github__list_branches, mcp__github__get_commit)
+
+abortion_criteria:
+  - Abort the work if Rust tooling is too noisy and starts burning too many tokens
+  - Abort the work if AI tool use burns too many tokens
+  - Abort the work if compilation fails continuously and there are no easy fixes
+  - Abort the work the task becomes too complex
+  - Abort the work if a PR against the base branch is open already
+
+harness:
+  - you work in an isolated env
+  - you can pull verified dependencies
+  - if you see improvements for your technical harness/env that can be pushed to a startup script, keep track of them in a temp. file (use a simple haiku note-taker agent for this)
+  - if you see high token burn, failed tool/skill use,  or other agentic issues, keep track of them (simple haiku note-taker)
+  - at the end propose improvements the final comments (see outcomes section below)
+  - thereby review all tracked items and document how you fixed them
+  - and make suggestions how to improve the agentic workflows, efficiency, and quality in the harness (extra PR comment)
+  - live-test technical harness ideas with an idempotent  `startup.sh` (not comitted; post the file as extra PR comment)
+  - make sure to not bleed  `cat << EOF` into comments (use files)
+
+expected_outcomes: |
+  1. PR against branch `develop`  in ubunatic/zed fork. Or PR skipped if tasks aborted.
+  2. Harness Assessment/Report here in the chat (and, if PR was posted,  as PR comment)
