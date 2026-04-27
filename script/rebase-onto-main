@@ -64,8 +64,11 @@ echo "==> Loading shared rerere resolutions..."
 echo "==> Starting rebase onto $UPSTREAM..."
 if git rebase "$UPSTREAM"
 then echo
+     echo "==> Saving rerere resolutions..."
+     "$(git rev-parse --show-toplevel)/script/sync-rerere" save
+     echo
      echo "Rebase complete. No conflicts."
-     echo "Run 'git push --force-with-lease origin $BRANCH' to update the remote."
+     echo "Commit rerere-cache/ if changed, then push with: git push --force-with-lease origin $BRANCH"
 else echo
      echo "==> Conflicts detected. Resolve them, then:"
      echo
