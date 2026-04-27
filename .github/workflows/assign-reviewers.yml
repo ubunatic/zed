@@ -1,0 +1,26 @@
+# Assign Reviewers — Smart team assignment based on diff weight
+#
+# NOTE: This workflow is upstream-only. It relies on GitHub App credentials
+# (COORDINATOR_APP_ID / COORDINATOR_APP_PRIVATE_KEY) and access to
+# zed-industries/codeowner-coordinator, which are not available in this fork.
+#
+# To avoid failing CI on this branch, the job is disabled.
+
+name: Assign Reviewers
+
+on:
+  # zizmor: ignore[dangerous-triggers] reviewed — no PR code checkout, only coordinator repo at ref: main
+  pull_request_target:
+    types: [opened, ready_for_review]
+
+permissions: {}
+
+concurrency:
+  group: assign-reviewers-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  assign-reviewers:
+    if: false
+    runs-on: ubuntu-latest
+    steps: []
