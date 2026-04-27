@@ -12,6 +12,7 @@ task: |
   Before picking a task, audit the PLAN.* files:
   - Read the code and check if any unchecked items are already implemented
   - Mark any already-done items as `[x]` in the PLAN files before selecting your task
+  - If no simple task remains, stop and report why
 
   After completing your task (or as its own PR if no coding task is done):
   - Update PLAN.* files: mark completed items, remove outdated notes
@@ -44,12 +45,19 @@ startup:
       fi
 
   on_conflict:
-    - resolve conflicts only if they are simple and you are confident about the resolution
-    - do not attempt to resolve complex conflicts where your confidence is low
+    - >
+      A "simple" conflict is one you are confident can be resolved quickly
+      and with good code quality — no hacks, no guessing at intent.
+      If in doubt, it is not simple.
+    - resolve conflicts only if they meet that bar
     - if you could not resolve the conflicts, **stop and let the human resolve**
 
 post_rebase:
-  - checkout your original development branch (if any) or create a new one for the task
+  - >
+    If you already have a working branch (e.g. from a prior session), check it out and reuse it.
+    Otherwise create a new branch now (after the rebase, not before).
+  - branch naming: <agent-name>/<descriptive-slug>
+    e.g. claude/fix-keymap-partial-load or claude/jumpy-tiger-12345 as fallback
   - reset your branch to develop to start with a clean state
 
 agentic_workflow:
@@ -60,35 +68,40 @@ agentic_workflow:
   - use haiku sub-agents with proper context for simple tasks
   - do other more complex tasks yourself
   - asses if agents are token efficient and estimate if you would have burned more tokens doing the tasks yourself in the main thread
-  - overall, try to be token efficient (use --quite build, etc.)
+  - overall, try to be token efficient (use --quiet build, etc.)
   - avoid sleep chaining, use Monitor + until-loop to wait for file content (e.g. for `cargo check`)
-  - pre-load GitHub MCP Tools at session start; commonly used tools are mcp__github__get_file_contents, mcp__github__add_issue_comment, mcp__github__create_pull_request, mcp__github__pull_request_read, mcp__github__list_branches, mcp__github__get_commit)
+  - GitHub MCP tools are available (mcp__github__get_file_contents, mcp__github__add_issue_comment,
+    mcp__github__create_pull_request, mcp__github__pull_request_read, mcp__github__list_branches,
+    mcp__github__get_commit); use `gh` CLI as fallback if any MCP tool is unavailable or fails
 
 abortion_criteria:
-  - Abort the work if Rust tooling is too noisy and starts burning too many tokens
-  - Abort the work if AI tool use burns too many tokens
-  - Abort the work if compilation fails continuously and there are no easy fixes
-  - Abort the work the task becomes too complex
-  - Abort the work if a PR against the base branch is open already
+  - Abort if Rust tooling output exceeds ~300 lines per cargo invocation with no actionable signal
+  - Abort if total token burn for the session exceeds ~80k tokens without meaningful progress
+  - Abort if compilation fails continuously and there are no easy fixes
+  - Abort if the task becomes too complex
+  - Abort if a PR against the base branch is already open
+  - If no simple task remains in PLAN.*, stop and report — do not force a complex task
 
 harness:
-  - you work in an isolated env
+  - you work in an isolated env; each run starts fresh
   - you can pull verified dependencies
   - if you see improvements for your technical harness/env that can be pushed to a startup script, keep track of them in a temp. file (use a simple haiku note-taker agent for this)
-  - if you see high token burn, failed tool/skill use,  or other agentic issues, keep track of them (simple haiku note-taker)
-  - at the end propose improvements the final comments (see outcomes section below)
+  - if you see high token burn, failed tool/skill use, or other agentic issues, keep track of them (simple haiku note-taker)
+  - at the end propose improvements in the final comments (see outcomes section below)
   - thereby review all tracked items and document how you fixed them
   - and make suggestions how to improve the agentic workflows, efficiency, and quality in the harness (extra PR comment)
-  - live-test technical harness ideas with an idempotent  `startup.sh` (not comitted; post the file as extra PR comment)
-  - make sure to not bleed  `cat << EOF` into comments (use files)
+  - live-test technical harness ideas with an idempotent `startup.sh` (not committed; post the file as extra PR comment)
+  - make sure to not bleed `cat << EOF` into comments (use files)
 
 cleanup:
   desc: Final step — always run this, even if no coding task was done
-  run: |
-    - Audit all PLAN.* files: mark items that are already implemented as `[x]`
-    - Remove or update notes in PLAN.* files that no longer apply
+  steps:
+    - Audit all PLAN.* files on the develop branch
+    - For each unchecked item, verify current implementation status in the codebase
+    - Mark already-implemented items as `[x]`; remove or update notes that no longer apply
     - Update REVIEW.md to reflect the current state of the implementation
-    - Commit and push any PLAN/REVIEW changes to `develop` (direct push ok for doc-only changes)
+    - Commit PLAN.* and REVIEW.md changes directly to develop (doc-only push is fine)
+    - Push develop to origin
 
 expected_outcomes: |
   1. PR against branch `develop` in ubunatic/zed fork. Or PR skipped if task aborted.
