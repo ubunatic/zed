@@ -27,9 +27,9 @@ To make this PR ready for merging, the following changes are required:
 * **Maintain Compatibility**: `collab` is already in the `default` features list in `crates/zed/Cargo.toml` — standard builds remain fully featured.
 * **Crate Gating**: Feature propagation is correct: `notifications/collab` activates the channel dependency; `collab_ui` is gated all-or-nothing via `dep:collab_ui`.
 
-#### **3. Keymap and Action Handling**
-* **Implement Partial Keymap Loading**: As noted in your appendix, you must implement `KeymapFile::load_asset_allow_partial_failure`. This is essential to prevent the "Missing Action" panics described in your issue report.
-* **Dynamic UI Elements**: The "Collab Panel" toggle and other collaboration-specific menu items must be strictly wrapped in `#[cfg(feature = "collab")]` to ensure they don't appear as "dead" buttons in the UI.
+#### **3. Keymap and Action Handling** ✅ Done
+* **Partial Keymap Loading**: `KeymapFile::load_asset_allow_partial_failure` is implemented in `crates/settings/src/keymap_file.rs`. Missing actions (e.g. collab actions in a no-collab build) are skipped with a `log::warn!` rather than causing a startup failure.
+* **Dynamic UI Elements**: The "Collab Panel" menu item is gated with `#[cfg(feature = "collab")]`. No ungated "Join Channel" or "Share" menu items exist. Remaining gap: `crates/title_bar` unconditionally depends on `call`/`channel`/`livekit_client` — screen-share and collaborator-list UI is not feature-gated (future work).
 
 #### **4. Build Profile Integration** ✅ Done
 * **Standardize Profiles**: The `release-lean` profile has been renamed to `release-min`, which is a better fit for a named specialized profile. The optimizations (`panic = "abort"`, `strip = "symbols"`, no LTO) are meaningfully distinct from the standard `release` profile and warrant their own name.
