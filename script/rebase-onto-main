@@ -1,16 +1,11 @@
 #!/usr/bin/env bash
-# Rebase collab-featureflag onto the latest origin/main.
+# Rebase develop onto the latest origin/main.
 #
 # Usage: script/rebase-onto-main [--dry-run]
-#
-# GPG signing: git rebase --continue must be run by the user (GPG needs
-# keychain access not available in automated/sandbox contexts). This script
-# handles fetch, rebase start, and conflict detection; it stops and tells
-# you exactly what to do when human input is needed.
 
 set -euo pipefail
 
-BRANCH="collab-featureflag"
+BRANCH="develop"
 UPSTREAM="origin/main"
 DRY_RUN=false
 
@@ -22,73 +17,68 @@ for arg in "$@"; do
 done
 
 current_branch=$(git rev-parse --abbrev-ref HEAD)
-if [[ "$current_branch" != "$BRANCH" ]]; then
-    echo "error: must be on branch '$BRANCH' (currently on '$current_branch')"
-    exit 1
+if test "$current_branch" != "$BRANCH"
+then echo "error: must be on branch '$BRANCH' (currently on '$current_branch')"
+     exit 1
 fi
 
-if [[ -d "$(git rev-parse --git-dir)/rebase-merge" ]] || \
-   [[ -d "$(git rev-parse --git-dir)/rebase-apply" ]]; then
-    echo "error: rebase already in progress"
-    echo
-    echo "  If there are conflicts to resolve:"
-    echo "    1. Fix the conflicted files listed by: git status"
-    echo "    2. git add <file>..."
-    echo "    3. git rebase --continue   (run this yourself — needs GPG)"
-    echo
-    echo "  To abort: git rebase --abort"
-    exit 1
+if test -d "$(git rev-parse --git-dir)/rebase-merge" || \
+   test -d "$(git rev-parse --git-dir)/rebase-apply"
+then echo "error: rebase already in progress"
+     echo
+     echo "  If there are conflicts to resolve:"
+     echo "    1. Fix the conflicted files listed by: git status"
+     echo "    2. git add <file>..."
+     echo "    3. git rebase --continue"
+     echo
+     echo "  To abort: git rebase --abort"
+     exit 1
 fi
 
 echo "==> Fetching $UPSTREAM..."
-if $DRY_RUN; then
-    echo "    [dry-run] would run: git fetch origin"
-else
-    git fetch origin
+if test "$DRY_RUN" = true
+then echo "    [dry-run] would run: git fetch origin"
+else git fetch origin
 fi
 
 upstream_sha=$(git rev-parse "$UPSTREAM")
-branch_sha=$(git rev-parse "$BRANCH")
 merge_base=$(git merge-base "$BRANCH" "$UPSTREAM")
 
-if [[ "$merge_base" == "$upstream_sha" ]]; then
-    echo "Already up to date — $BRANCH is based on $(git rev-parse --short $UPSTREAM) ($UPSTREAM)."
-    exit 0
+if test "$merge_base" = "$upstream_sha"
+then echo "Already up to date — $BRANCH is based on $(git rev-parse --short $UPSTREAM) ($UPSTREAM)."
+     exit 0
 fi
 
 behind=$(git rev-list --count "$BRANCH..$UPSTREAM")
 ahead=$(git rev-list --count "$UPSTREAM..$BRANCH")
 echo "==> $BRANCH is $behind commit(s) behind and $ahead commit(s) ahead of $UPSTREAM"
 
-if $DRY_RUN; then
-    echo "    [dry-run] would run: git rebase $UPSTREAM"
-    exit 0
+if test "$DRY_RUN" = true
+then echo "    [dry-run] would run: git rebase $UPSTREAM"
+     exit 0
 fi
 
 echo "==> Loading shared rerere resolutions..."
 "$(git rev-parse --show-toplevel)/script/sync-rerere" load
 
 echo "==> Starting rebase onto $UPSTREAM..."
-if git rebase "$UPSTREAM"; then
-    echo
-    echo "Rebase complete. No conflicts."
-    echo "Run 'git push --force-with-lease origin $BRANCH' to update the remote."
-else
-    echo
-    echo "==> Conflicts detected. Resolve them, then:"
-    echo
-    conflicted=$(git diff --name-only --diff-filter=U 2>/dev/null || true)
-    if [[ -n "$conflicted" ]]; then
-        echo "  Conflicted files:"
-        while IFS= read -r f; do
-            echo "    $f"
-        done <<< "$conflicted"
-        echo
-    fi
-    echo "  1. Edit the conflicted files above"
-    echo "  2. git add <resolved files>"
-    echo "  3. git rebase --continue   # run this yourself — needs GPG keychain"
-    echo
-    echo "  Known conflict patterns for this branch: see REBASE.md"
-    exit 1
+if git rebase "$UPSTREAM"
+then echo
+     echo "Rebase complete. No conflicts."
+     echo "Run 'git push --force-with-lease origin $BRANCH' to update the remote."
+else echo
+     echo "==> Conflicts detected. Resolve them, then:"
+     echo
+     conflicted=$(git diff --name-only --diff-filter=U 2>/dev/null || true)
+     if test -n "$conflicted"
+     then echo "  Conflicted files:"
+          echo "$conflicted" | while IFS= read -r f; do echo "    $f"; done
+          echo
+     fi
+     echo "  1. Edit the conflicted files above"
+     echo "  2. git add <resolved files>"
+     echo "  3. git rebase --continue"
+     echo
+     echo "  Known conflict patterns for this branch: see REBASE.md"
+     exit 1
 fi

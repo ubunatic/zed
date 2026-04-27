@@ -1,4 +1,4 @@
-# Rebasing collab-featureflag onto main
+# Rebasing develop onto main
 
 This branch is a long-lived fork tracking `zed-industries/zed:main`. It may not
 merge for months. This document explains how to keep it rebased.
@@ -13,8 +13,9 @@ script/sync-rerere load
 # Every subsequent rebase:
 script/rebase-onto-main
 
-# If conflicts remain after rerere, resolve them manually, then:
-git rebase --continue   # run yourself — needs GPG keychain
+# If conflicts remain after rerere, resolve them manually, then continue:
+git add <resolved-files>
+git rebase --continue
 
 # After resolving a new conflict, save the resolution so others benefit:
 script/sync-rerere save
@@ -22,7 +23,7 @@ git add rerere-cache/
 git commit -m "rerere: Record resolution for <describe the conflict>"
 
 # Push when done:
-git push --force-with-lease origin collab-featureflag
+git push --force-with-lease origin develop
 ```
 
 ## How the rerere cache works
@@ -47,13 +48,6 @@ git config --global rerere.enabled true
 ```
 
 Check what resolutions are cached: `git rerere status`
-
-## Why GPG requires manual `git rebase --continue`
-
-The sandbox / automation environment used with Claude Code cannot access the
-macOS keychain, so GPG commit signing fails. Any `git rebase --continue` (or
-`git commit`) must be run directly in your terminal. The helper scripts handle
-everything else.
 
 ## Branch overview
 
