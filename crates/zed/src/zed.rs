@@ -5169,7 +5169,7 @@ mod tests {
                 .collect::<Vec<_>>();
             assert_eq!(actions_without_namespace, Vec::<&str>::new());
 
-            let expected_namespaces = vec![
+            let mut expected_namespaces = vec![
                 "action",
                 "activity_indicator",
                 "agent",
@@ -5182,11 +5182,9 @@ mod tests {
                 "bedrock",
                 "branches",
                 "buffer_search",
-                "channel_modal",
                 "cli",
                 "client",
                 "collab",
-                "collab_panel",
                 "command_palette",
                 "console",
                 "context_server",
@@ -5262,6 +5260,8 @@ mod tests {
                 "zed_predict_onboarding",
                 "zeta",
             ];
+            #[cfg(feature = "collab")]
+            expected_namespaces.extend(["channel_modal", "collab_panel"]);
             assert_eq!(
                 all_namespaces,
                 expected_namespaces
