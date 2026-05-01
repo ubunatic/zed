@@ -46,9 +46,9 @@ This plan addresses the technical debt and missing robustness identified in the 
 ## Phase 4: Verification & CI Integration
 *Goal: Maintain the "Lean" build over time.*
 
-- [ ] **4.1 Local Build Verification:**
-    - Run `cargo build --no-default-features`.
-    - Run `cargo test --no-default-features`.
+- [x] **4.1 Local Build Verification (partial):**
+    - `cargo check -p zed --no-default-features` validated by CI run on ubuntu-22.04 (PR #12, ~11.5 min cold build). ✅
+    - `cargo build --no-default-features` and `cargo test --no-default-features` not yet run; deferred to a machine with a warm cache (see Known Gaps).
 - [x] **4.2 CI Definition:**
     - `.github/workflows/lean_build_check.yml` added: triggers on PRs and pushes to `main`/`develop`, runs `./script/lean-check` (`cargo check -p zed --no-default-features`) on ubuntu-22.04. Cancels stale runs via concurrency group.
 
