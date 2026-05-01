@@ -36,8 +36,8 @@ To make this PR ready for merging, the following changes are required:
 #### **4. Build Profile Integration** ✅ Done
 * **Standardize Profiles**: The `release-lean` profile has been renamed to `release-min`, which is a better fit for a named specialized profile. The optimizations (`panic = "abort"`, `strip = "symbols"`, no LTO) are meaningfully distinct from the standard `release` profile and warrant their own name.
 
-#### **5. Test Suite Validation**
-* **Gate Existing Tests**: Many integration tests in `crates/zed` and `crates/workspace` assume a collaboration server is available. These need to be gated with `#[cfg(feature = "collab")]` or updated to use mocks when the feature is disabled.
+#### **5. Test Suite Validation** ✅ Partial
+* **Gate Existing Tests**: The `test_registered_actions_have_namespaces` test in `crates/zed/src/zed.rs` now gates `channel_modal` and `collab_panel` namespace expectations behind `#[cfg(feature = "collab")]`. Broader integration tests in `crates/zed` and `crates/workspace` that assume a collaboration server are still ungated — full gating is deferred until upstream review begins.
 
 #### **6. Logic Refinement** ✅ Done
 * **`OpenRequest` Handling**: Implemented — `OpenRequestKind::CollabLinkUnsupported` is set in `open_listener.rs` and handled in `main.rs` with a toast: *"Collaboration links are not supported in this build."*

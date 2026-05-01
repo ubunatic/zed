@@ -275,3 +275,62 @@ None new this session. All previously identified improvements are in place and w
 - **CI confirmed**: `cargo check -p zed --no-default-features` passed on ubuntu-22.04 in PR #12 (~11.5 min cold). PLAN 4.1 partially validated.
 - Remaining: `cargo build` + `cargo test` with `--no-default-features` on a warm-cache machine. Low priority — type checking clean is the critical gate.
 - The `crates/title_bar` collab dep gap (screen-share/collaborator UI ungated) remains as noted in Known Gaps.
+
+---
+
+## Session: 2026-05-01 — Cleanup audit (no coding task)
+
+### Task completed
+Ran `script/plan-audit` — all items in PLAN.next.md are already marked `[x]`. No coding task was
+available. Noted that the user's manual `gate tests` commit (5fc319f) partially addressed REVIEW
+item 5 by gating `channel_modal` / `collab_panel` namespace checks in `zed.rs` behind
+`#[cfg(feature = "collab")]`. Updated REVIEW.md section 5 accordingly.
+
+---
+
+### Token burn analysis
+
+| Area | Rough cost | Notes |
+|------|-----------|-------|
+| ToolSearch (deferred tools) | Low | 2 batch loads (TodoWrite, list_pull_requests). `tools:` preload working as intended. |
+| GitHub MCP reads | Low | Parallel reads for PLAN.next.md, HARNESS.md, REVIEW.md, and root listing in 2 round-trips. |
+| plan-audit local run | Minimal | Confirmed no unchecked items in one command. |
+| No compilation | — | No cargo invocations this session. |
+
+**Total burn: very low.** Audit-only session with no coding task.
+
+---
+
+### What worked well
+
+- **`script/plan-audit`** gave an immediate answer (no unchecked items) without reading every PLAN file.
+- **Parallel MCP reads** resolved PLAN.next.md, HARNESS.md, and REVIEW.md in a single round-trip.
+- **Abort criteria** in ROUTINE.yaml correctly guided stopping and moving straight to cleanup.
+
+---
+
+### Ideas for improvement
+
+#### 1. `tools:` preload section could list `mcp__github__get_file_contents` explicitly
+The `develop` branch files are always needed at startup (PLAN.next.md, REVIEW.md, HARNESS.md).
+Pre-loading `mcp__github__get_file_contents` alongside the other tools would save one extra
+ToolSearch round-trip.
+
+#### 2. ROUTINE.yaml could clarify "no task" cleanup flow
+When `plan-audit` returns no unchecked items, the current ROUTINE.yaml flow says "stop and
+report why" but the `cleanup` step still requires a PR with HARNESS.md changes. A sentence
+clarifying that cleanup-only sessions still produce a PR (with only doc changes) would avoid
+ambiguity.
+
+---
+
+### Notes for next session
+
+- **All PLAN.next.md items are done.** The fork's `collab` feature flag work is functionally
+  complete for the items tracked in this plan.
+- Next work item to consider: gating `crates/title_bar`'s `call`/`channel`/`livekit_client`
+  dependencies behind a `collab` feature — the one remaining Known Gap. This would require adding
+  a `collab` feature to `title_bar`'s `Cargo.toml` and wrapping screen-share / collaborator-list
+  render paths.
+- The `gate tests` commit (5fc319f) was a manual user commit, not from an agent session. Future
+  sessions may want to continue partial test-suite gating in `crates/zed` and `crates/workspace`.
