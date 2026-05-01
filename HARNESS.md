@@ -272,6 +272,6 @@ None new this session. All previously identified improvements are in place and w
 
 ### Notes for next session
 
-- Only remaining open PLAN item: **4.1** (local lean build verification — run `script/lean-check` in a full Linux build env). This requires system deps (`./script/linux`) and a warm cargo cache; best done on a machine with a full Zed build set up.
-- Phase 4 is effectively complete once 4.1 is validated. At that point, all PLAN.next.md items will be done and the branch is ready for upstream PR prep.
+- **CI confirmed**: `cargo check -p zed --no-default-features` passed on ubuntu-22.04 in PR #12 (~11.5 min cold). PLAN 4.1 partially validated.
+- Remaining: `cargo build` + `cargo test` with `--no-default-features` on a warm-cache machine. Low priority — type checking clean is the critical gate.
 - The `crates/title_bar` collab dep gap (screen-share/collaborator UI ungated) remains as noted in Known Gaps.
