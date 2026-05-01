@@ -1,4 +1,4 @@
-*Last audited: 2026-04-27*
+*Last audited: 2026-05-01*
 
 As a core Zed developer, I find this PR to be a highly valuable initiative for improving the editor's modularity and performance. Decoupling collaboration features is a frequent request from users who prefer a "lean" or purely local editing experience, and using a feature flag is the idiomatic way to handle this in Rust.
 
@@ -11,7 +11,7 @@ This is a sophisticated contribution that correctly identifies the deep integrat
 
 ### **Best Use of the Contribution**
 To make the best use of this work, we can:
-* **CI Optimization**: Integrate a "lean" build check into our CI pipeline to ensure that future changes do not accidentally introduce mandatory collaboration dependencies.
+* **CI Optimization**: `.github/workflows/lean_build_check.yml` now runs `cargo check -p zed --no-default-features` on every PR and push to main/develop, ensuring future changes cannot accidentally re-introduce hard `collab_ui` dependencies.
 * **Enterprise Distribution**: Use this feature to provide a "Standard" vs. "Collaborative" version of Zed for environments with strict networking policies.
 * **Performance Benchmarking**: Use the `release-min` profile to establish a baseline for "core" editor performance.
 

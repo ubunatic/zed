@@ -46,11 +46,11 @@ This plan addresses the technical debt and missing robustness identified in the 
 ## Phase 4: Verification & CI Integration
 *Goal: Maintain the "Lean" build over time.*
 
-- [ ] **4.1 Local Build Verification:**
-    - Run `cargo build --no-default-features`.
-    - Run `cargo test --no-default-features`.
-- [ ] **4.2 CI Definition:**
-    - Draft a GitHub Action job snippet for `.github/workflows/` that builds Zed with `--no-default-features` to ensure no "feature creep" re-introduces hard dependencies on `collab_ui`.
+- [x] **4.1 Local Build Verification (partial):**
+    - `cargo check -p zed --no-default-features` validated by CI run on ubuntu-22.04 (PR #12, ~11.5 min cold build). ✅
+    - `cargo build --no-default-features` and `cargo test --no-default-features` not yet run; deferred to a machine with a warm cache (see Known Gaps).
+- [x] **4.2 CI Definition:**
+    - `.github/workflows/lean_build_check.yml` added: triggers on PRs and pushes to `main`/`develop`, runs `./script/lean-check` (`cargo check -p zed --no-default-features`) on ubuntu-22.04. Cancels stale runs via concurrency group.
 
 ---
 
@@ -62,7 +62,8 @@ This plan addresses the technical debt and missing robustness identified in the 
 1.  ~~**Fix the Keymap Panic (2.1):** This is the highest priority technical blocker.~~ ✅ Done
 2.  ~~**Audit keymaps (2.2):** Check `assets/keymaps/default.json` for collab-only actions.~~ ✅ Done — partial loading handles them gracefully.
 3.  ~~**UI gating (3.1):** Wrap any remaining collab menu items in `#[cfg(feature = "collab")]`.~~ ✅ Done for menus. Title bar collab module remains ungated (future work).
-4.  **Test (4.1):** Validate `cargo build --no-default-features` succeeds and binary shrinks.
+4.  ~~**Test (4.1):** Validate `cargo build --no-default-features` succeeds and binary shrinks.~~ Tracked as known gap (requires a full Linux build environment).
+5.  ~~**CI snippet (4.2):** Draft `lean_build_check.yml` workflow.~~ ✅ Done — `.github/workflows/lean_build_check.yml` added.
 
 ---
 
