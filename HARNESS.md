@@ -231,3 +231,47 @@ None new this session. All previously identified improvements are now implemente
 - **`gh` default repo**: `gh pr create` targets `upstream` (zed-industries/zed) by default.
   Run `gh repo set-default ubunatic/zed` once per clone to point all `gh` commands at the fork.
   This is stored in `.git/config` and does not affect `git remote` or `git fetch upstream`.
+
+---
+
+## Session: 2026-05-01 — Lean build CI workflow (PLAN 4.2)
+
+### Task completed
+Created `.github/workflows/lean_build_check.yml`: a GitHub Actions workflow that runs
+`./script/lean-check` (`cargo check -p zed --no-default-features`) on every PR and push to
+`main`/`develop`. Marked PLAN item 4.2 done. Updated REVIEW.md last-audited date and CI section.
+
+---
+
+### Token burn analysis
+
+| Area | Rough cost | Notes |
+|------|-----------|-------|
+| ToolSearch (deferred tools) | Low | 2 batch loads (TodoWrite, list_pull_requests). `tools:` preload section in ROUTINE.yaml worked — fewer round-trips than prior sessions. |
+| GitHub MCP reads | Low | Parallel reads for PLAN.next.md, HARNESS.md, workflow listing, and run_tests.yml reference. All resolved in 2 round-trips. |
+| File writes/edits | Low | 1 new file + 4 targeted edits. No compilation needed. |
+
+**No significant waste.** Pure doc+YAML task with a clear scope and no cargo invocations.
+
+---
+
+### What worked well
+
+- **`tools:` preload section** in ROUTINE.yaml reduced ToolSearch calls from ~6 to 2 this session.
+- **Parallel MCP fetches** (PLAN.next.md + HARNESS.md + workflow listing simultaneously) kept latency low.
+- **No open PRs check** upfront caught that the branch was clean before picking a task.
+- **Doc + code in same branch commit** (per improved ROUTINE.yaml) avoided the branch-switch confusion documented in session 2026-04-27.
+
+---
+
+### Ideas for improvement
+
+None new this session. All previously identified improvements are in place and working.
+
+---
+
+### Notes for next session
+
+- Only remaining open PLAN item: **4.1** (local lean build verification — run `script/lean-check` in a full Linux build env). This requires system deps (`./script/linux`) and a warm cargo cache; best done on a machine with a full Zed build set up.
+- Phase 4 is effectively complete once 4.1 is validated. At that point, all PLAN.next.md items will be done and the branch is ready for upstream PR prep.
+- The `crates/title_bar` collab dep gap (screen-share/collaborator UI ungated) remains as noted in Known Gaps.
