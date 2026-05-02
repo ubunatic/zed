@@ -14842,14 +14842,14 @@ impl Editor {
         Some((Image::from_bytes(format, content), name))
     }
 
-    fn next_available_image_filename(assets_dir: &std::path::Path, ext: &str) -> String {
-        let candidate = format!("image.{ext}");
+    fn next_available_image_filename(assets_dir: &std::path::Path, stem: &str, ext: &str) -> String {
+        let candidate = format!("{stem}.{ext}");
         if !assets_dir.join(&candidate).exists() {
             return candidate;
         }
         let mut counter = 1u32;
         loop {
-            let candidate = format!("image-{counter}.{ext}");
+            let candidate = format!("{stem}-{counter}.{ext}");
             if !assets_dir.join(&candidate).exists() {
                 return candidate;
             }
@@ -14876,9 +14876,7 @@ impl Editor {
         if !is_markdown {
             return;
         }
-        let Some(abs_path) = project::File::from_dyn(buffer.file())
-            .map(|file| file.abs_path(cx))
-        else {
+        let Some(abs_path) = buffer.file().and_then(|file| file.as_local()).map(|file| file.abs_path(cx)) else {
             return;
         };
         let Some(doc_dir) = abs_path.parent().map(|p| p.to_path_buf()) else {
@@ -14887,10 +14885,16 @@ impl Editor {
         let assets_dir = doc_dir.join("assets");
         let ext = Self::image_format_extension(image.format());
         let bytes = image.bytes().to_vec();
+        // Derive a stem from the image name: strip any extension, lowercase.
+        let stem = std::path::Path::new(image_name.as_ref())
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("image")
+            .to_lowercase();
 
         let write_task = cx.background_spawn(async move {
             std::fs::create_dir_all(&assets_dir)?;
-            let filename = Self::next_available_image_filename(&assets_dir, ext);
+            let filename = Self::next_available_image_filename(&assets_dir, &stem, ext);
             let file_path = assets_dir.join(&filename);
             std::fs::write(&file_path, bytes)?;
             anyhow::Ok(filename)

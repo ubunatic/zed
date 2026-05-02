@@ -5507,6 +5507,7 @@ dependencies = [
  "sum_tree",
  "task",
  "telemetry",
+ "tempfile",
  "text",
  "theme",
  "theme_settings",
