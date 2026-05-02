@@ -22,7 +22,6 @@ pub fn init(app_state: &Arc<AppState>, cx: &mut App) {
     channel_view::init(cx);
     collab_panel::init(cx);
     notifications::init(app_state, cx);
-    title_bar::init(cx);
 }
 
 fn notification_window_options(

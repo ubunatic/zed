@@ -27318,6 +27318,7 @@ async fn test_multi_buffer_navigation_with_folded_buffers(cx: &mut TestAppContex
     cx.update(|cx| {
         let default_key_bindings = settings::KeymapFile::load_asset_allow_partial_failure(
             "keymaps/default-linux.json",
+            None,
             cx,
         )
         .unwrap();
@@ -37366,4 +37367,250 @@ fn setup_syntax_highlighting_with_theme(
             cx,
         );
     });
+}
+
+// Minimal 1×1 PNG (67 bytes), valid for format detection.
+const TINY_PNG: &[u8] = &[
+    0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG signature
+    0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, // IHDR chunk length + type
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, // width=1, height=1
+    0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, // bit depth, color type, ...
+    0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, // IDAT chunk
+    0x54, 0x08, 0xD7, 0x63, 0xF8, 0xCF, 0xC0, 0x00,
+    0x00, 0x00, 0x02, 0x00, 0x01, 0xE2, 0x21, 0xBC,
+    0x33, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, // IEND chunk
+    0x44, 0xAE, 0x42, 0x60, 0x82,
+];
+
+struct LocalTestFile {
+    abs_path: PathBuf,
+    rel_path: Arc<util::rel_path::RelPath>,
+}
+
+impl language::File for LocalTestFile {
+    fn as_local(&self) -> Option<&dyn language::LocalFile> {
+        Some(self)
+    }
+    fn disk_state(&self) -> language::DiskState {
+        language::DiskState::New
+    }
+    fn path(&self) -> &Arc<util::rel_path::RelPath> {
+        &self.rel_path
+    }
+    fn full_path(&self, _: &gpui::App) -> PathBuf {
+        self.abs_path.clone()
+    }
+    fn path_style(&self, _: &gpui::App) -> util::paths::PathStyle {
+        util::paths::PathStyle::local()
+    }
+    fn file_name<'a>(&'a self, _: &'a gpui::App) -> &'a str {
+        self.abs_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+    }
+    fn worktree_id(&self, _: &gpui::App) -> project::WorktreeId {
+        project::WorktreeId::from_usize(0)
+    }
+    fn to_proto(&self, _: &gpui::App) -> rpc::proto::File {
+        unimplemented!()
+    }
+    fn is_private(&self) -> bool {
+        false
+    }
+}
+
+impl language::LocalFile for LocalTestFile {
+    fn abs_path(&self, _: &gpui::App) -> PathBuf {
+        self.abs_path.clone()
+    }
+    fn load(&self, _: &gpui::App) -> gpui::Task<anyhow::Result<String>> {
+        unimplemented!()
+    }
+    fn load_bytes(&self, _: &gpui::App) -> gpui::Task<anyhow::Result<Vec<u8>>> {
+        unimplemented!()
+    }
+}
+
+fn markdown_language_and_test_file(
+    doc_abs_path: PathBuf,
+) -> (Arc<Language>, Arc<LocalTestFile>) {
+    let language = Arc::new(Language::new(
+        LanguageConfig {
+            name: "Markdown".into(),
+            ..LanguageConfig::default()
+        },
+        None,
+    ));
+    let rel_path = Arc::from(util::rel_path::rel_path(
+        doc_abs_path.file_name().and_then(|n| n.to_str()).unwrap_or("note.md"),
+    ));
+    let test_file = Arc::new(LocalTestFile {
+        abs_path: doc_abs_path,
+        rel_path,
+    });
+    (language, test_file)
+}
+
+#[gpui::test]
+async fn test_paste_image_into_markdown_inserts_link(cx: &mut gpui::TestAppContext) {
+    init_test(cx, |_| {});
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let doc_path = temp_dir.path().join("note.md");
+    std::fs::write(&doc_path, "").unwrap();
+    let (language, test_file) = markdown_language_and_test_file(doc_path);
+
+    let mut cx = EditorTestContext::new(cx).await;
+    cx.update_buffer(|buffer, cx| {
+        buffer.set_language(Some(language), cx);
+        buffer.file_updated(test_file, cx);
+    });
+    cx.set_state("ˇ");
+
+    let image = gpui::Image::from_bytes(gpui::ImageFormat::Png, TINY_PNG.to_vec());
+    cx.update_editor(|editor, window, cx| {
+        cx.write_to_clipboard(gpui::ClipboardItem::new_image(&image));
+        editor.paste(&Paste, window, cx);
+    });
+    cx.executor().run_until_parked();
+
+    cx.update_editor(|editor, _window, cx| {
+        let text = editor.buffer().read(cx).snapshot(cx).text();
+        assert!(
+            text.contains("![Image](assets/image.png)"),
+            "expected markdown image link, got: {text:?}"
+        );
+    });
+    assert!(
+        temp_dir.path().join("assets/image.png").exists(),
+        "image file was not written to disk"
+    );
+}
+
+#[gpui::test]
+async fn test_paste_image_path_into_markdown_inserts_link(cx: &mut gpui::TestAppContext) {
+    init_test(cx, |_| {});
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let doc_path = temp_dir.path().join("note.md");
+    std::fs::write(&doc_path, "").unwrap();
+    let (language, test_file) = markdown_language_and_test_file(doc_path);
+
+    // Write a PNG to a separate source location to simulate dragging from file manager.
+    let src_dir = tempfile::tempdir().unwrap();
+    let src_path = src_dir.path().join("photo.png");
+    std::fs::write(&src_path, TINY_PNG).unwrap();
+
+    let mut cx = EditorTestContext::new(cx).await;
+    cx.update_buffer(|buffer, cx| {
+        buffer.set_language(Some(language), cx);
+        buffer.file_updated(test_file, cx);
+    });
+    cx.set_state("ˇ");
+
+    cx.update_editor(|editor, window, cx| {
+        cx.write_to_clipboard(gpui::ClipboardItem::from(gpui::ClipboardEntry::ExternalPaths(
+            gpui::ExternalPaths(smallvec::smallvec![src_path.clone()]),
+        )));
+        editor.paste(&Paste, window, cx);
+    });
+    cx.executor().run_until_parked();
+
+    cx.update_editor(|editor, _window, cx| {
+        let text = editor.buffer().read(cx).snapshot(cx).text();
+        assert!(
+            text.contains("![photo.png](assets/photo.png)"),
+            "expected link with source filename, got: {text:?}"
+        );
+    });
+    assert!(
+        temp_dir.path().join("assets/photo.png").exists(),
+        "image file was not written to disk"
+    );
+}
+
+#[gpui::test]
+async fn test_paste_image_into_non_markdown_is_noop(cx: &mut gpui::TestAppContext) {
+    init_test(cx, |_| {});
+
+    let rust_lang = Arc::new(Language::new(
+        LanguageConfig {
+            name: "Rust".into(),
+            ..LanguageConfig::default()
+        },
+        None,
+    ));
+
+    let mut cx = EditorTestContext::new(cx).await;
+    cx.update_buffer(|buffer, cx| buffer.set_language(Some(rust_lang), cx));
+    cx.set_state("fn main() {}ˇ");
+
+    let image = gpui::Image::from_bytes(gpui::ImageFormat::Png, TINY_PNG.to_vec());
+    cx.update_editor(|editor, window, cx| {
+        cx.write_to_clipboard(gpui::ClipboardItem::new_image(&image));
+        editor.paste(&Paste, window, cx);
+    });
+    cx.executor().run_until_parked();
+
+    cx.assert_editor_state("fn main() {}ˇ");
+}
+
+#[gpui::test]
+async fn test_paste_image_into_unsaved_markdown_is_noop(cx: &mut gpui::TestAppContext) {
+    init_test(cx, |_| {});
+
+    let language = Arc::new(Language::new(
+        LanguageConfig {
+            name: "Markdown".into(),
+            ..LanguageConfig::default()
+        },
+        None,
+    ));
+
+    let mut cx = EditorTestContext::new(cx).await;
+    // Set Markdown language but no file — simulates an unsaved buffer.
+    cx.update_buffer(|buffer, cx| buffer.set_language(Some(language), cx));
+    cx.set_state("ˇ");
+
+    let image = gpui::Image::from_bytes(gpui::ImageFormat::Png, TINY_PNG.to_vec());
+    cx.update_editor(|editor, window, cx| {
+        cx.write_to_clipboard(gpui::ClipboardItem::new_image(&image));
+        editor.paste(&Paste, window, cx);
+    });
+    cx.executor().run_until_parked();
+
+    cx.assert_editor_state("ˇ");
+}
+
+#[gpui::test]
+async fn test_paste_text_takes_priority_over_image(cx: &mut gpui::TestAppContext) {
+    init_test(cx, |_| {});
+
+    let language = Arc::new(Language::new(
+        LanguageConfig {
+            name: "Markdown".into(),
+            ..LanguageConfig::default()
+        },
+        None,
+    ));
+
+    let mut cx = EditorTestContext::new(cx).await;
+    cx.update_buffer(|buffer, cx| buffer.set_language(Some(language), cx));
+    cx.set_state("ˇ");
+
+    let image = gpui::Image::from_bytes(gpui::ImageFormat::Png, TINY_PNG.to_vec());
+    cx.update_editor(|editor, window, cx| {
+        // Clipboard has both a string and an image — text must win.
+        cx.write_to_clipboard(gpui::ClipboardItem {
+            entries: vec![
+                gpui::ClipboardEntry::String(gpui::ClipboardString::new("hello".into())),
+                gpui::ClipboardEntry::Image(image),
+            ],
+        });
+        editor.paste(&Paste, window, cx);
+    });
+    cx.executor().run_until_parked();
+
+    cx.assert_editor_state("helloˇ");
 }

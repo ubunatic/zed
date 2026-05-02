@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Usage: script/bg-check <crate> [extra cargo flags...]
+# Wraps cargo check with a sentinel file so Monitor until-loops can reliably
+# detect both "still running" and "finished" states without racing an empty file.
+set -euo pipefail
+crate="${1:?Usage: bg-check <crate>}"
+shift
+out_file="${BG_CHECK_OUT:-${TMPDIR:-/tmp}/bg-check-$crate.out}"
+echo "RUNNING" > "$out_file"
+cargo check -p "$crate" "$@" >> "$out_file" 2>&1
+echo "EXIT:$?" >> "$out_file"

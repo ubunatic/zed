@@ -11,6 +11,7 @@ use anyhow::{Context as _, Result};
 use clap::Parser;
 use cli::FORCE_CLI_MODE_ENV_VAR_NAME;
 use client::{Client, ProxySettings, RefreshLlmTokenListener, UserStore, parse_zed_link};
+#[cfg(feature = "collab")]
 use collab_ui::channel_view::ChannelView;
 use collections::HashMap;
 use crashes::InitCrashHandler;
@@ -18,7 +19,9 @@ use db::kvp::{GlobalKeyValueStore, KeyValueStore};
 use editor::Editor;
 use extension::ExtensionHostProxy;
 use fs::{Fs, RealFs};
-use futures::{StreamExt, channel::oneshot, future};
+use futures::{StreamExt, channel::oneshot};
+#[cfg(feature = "collab")]
+use futures::future;
 use git::GitHostingProviderRegistry;
 use git_ui::clone::clone_and_open;
 use gpui::{
@@ -55,7 +58,9 @@ use std::{
 };
 use theme::{ActiveTheme, GlobalTheme, ThemeRegistry};
 use theme_settings::load_user_theme;
-use util::{ResultExt, TryFutureExt, maybe};
+use util::{ResultExt};
+#[cfg(feature = "collab")]
+use util::{TryFutureExt, maybe};
 use uuid::Uuid;
 use workspace::{
     AppState, MultiWorkspace, SerializedWorkspaceLocation, SessionWorkspace, Toast,
@@ -705,6 +710,8 @@ fn main() {
         outline_panel::init(cx);
         tasks_ui::init(cx);
         snippets_ui::init(cx);
+        title_bar::init(cx);
+        #[cfg(feature = "collab")]
         channel::init(&app_state.client.clone(), app_state.user_store.clone(), cx);
         search::init(cx);
         cx.set_global(workspace::PaneSearchBarCallbacks {
@@ -726,9 +733,12 @@ fn main() {
         theme_selector::init(cx);
         settings_profile_selector::init(cx);
         language_tools::init(cx);
-        call::init(app_state.client.clone(), app_state.user_store.clone(), cx);
-        notifications::init(app_state.client.clone(), app_state.user_store.clone(), cx);
-        collab_ui::init(&app_state, cx);
+        #[cfg(feature = "collab")]
+        {
+            call::init(app_state.client.clone(), app_state.user_store.clone(), cx);
+            notifications::init(app_state.client.clone(), app_state.user_store.clone(), cx);
+            collab_ui::init(&app_state, cx);
+        }
         git_ui::init(cx);
         git_graph::init(cx);
         feedback::init(cx);
@@ -1199,6 +1209,19 @@ fn handle_open_request(request: OpenRequest, app_state: Arc<AppState>, cx: &mut 
                 })
                 .detach_and_log_err(cx);
             }
+            #[cfg(not(feature = "collab"))]
+            OpenRequestKind::CollabLinkUnsupported => {
+                struct CollabUnsupportedToast;
+                workspace::with_active_or_new_workspace(cx, |workspace, _window, cx| {
+                    workspace.show_toast(
+                        Toast::new(
+                            NotificationId::unique::<CollabUnsupportedToast>(),
+                            "Collaboration links are not supported in this build.",
+                        ),
+                        cx,
+                    );
+                });
+            }
         }
 
         return;
@@ -1220,11 +1243,38 @@ fn handle_open_request(request: OpenRequest, app_state: Arc<AppState>, cx: &mut 
         return;
     }
 
+    #[cfg(feature = "collab")]
     let mut task = None;
     let dev_container = request.dev_container;
     if !request.open_paths.is_empty() || !request.diff_paths.is_empty() {
         let app_state = app_state.clone();
-        task = Some(cx.spawn(async move |cx| {
+        #[cfg(feature = "collab")]
+        {
+            task = Some(cx.spawn(async move |cx| {
+                let paths_with_position =
+                    derive_paths_with_position(app_state.fs.as_ref(), request.open_paths).await;
+                let (_window, results) = open_paths_with_positions(
+                    &paths_with_position,
+                    &request.diff_paths,
+                    request.diff_all,
+                    app_state,
+                    workspace::OpenOptions {
+                        open_in_dev_container: dev_container,
+                        ..Default::default()
+                    },
+                    cx,
+                )
+                .await?;
+                for result in results.into_iter().flatten() {
+                    if let Err(err) = result {
+                        log::error!("Error opening path: {err}",);
+                    }
+                }
+                anyhow::Ok(())
+            }));
+        }
+        #[cfg(not(feature = "collab"))]
+        cx.spawn(async move |cx| {
             let paths_with_position =
                 derive_paths_with_position(app_state.fs.as_ref(), request.open_paths).await;
             let (_window, results) = open_paths_with_positions(
@@ -1245,9 +1295,11 @@ fn handle_open_request(request: OpenRequest, app_state: Arc<AppState>, cx: &mut 
                 }
             }
             anyhow::Ok(())
-        }));
+        })
+        .detach();
     }
 
+    #[cfg(feature = "collab")]
     if !request.open_channel_notes.is_empty() || request.join_channel.is_some() {
         cx.spawn(async move |cx| {
             let result = maybe!(async {

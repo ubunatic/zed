@@ -101,6 +101,7 @@ impl VimTestContext {
         });
         let mut default_key_bindings = settings::KeymapFile::load_asset_allow_partial_failure(
             "keymaps/default-macos.json",
+            None,
             cx,
         )
         .unwrap();
@@ -110,7 +111,7 @@ impl VimTestContext {
         cx.bind_keys(default_key_bindings);
         if enabled {
             let mut vim_key_bindings =
-                settings::KeymapFile::load_asset_allow_partial_failure("keymaps/vim.json", cx)
+                settings::KeymapFile::load_asset_allow_partial_failure("keymaps/vim.json", None, cx)
                     .unwrap();
             for key_binding in &mut vim_key_bindings {
                 key_binding.set_meta(settings::KeybindSource::Vim.meta());

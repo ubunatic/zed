@@ -1,0 +1,41 @@
+name: lean_build_check
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: '1'
+  CARGO_INCREMENTAL: '0'
+on:
+  pull_request:
+    branches:
+      - '**'
+    paths-ignore:
+      - '**/*.md'
+  push:
+    branches:
+      - main
+      - develop
+      - v[0-9]+.[0-9]+.x
+    paths-ignore:
+      - '**/*.md'
+jobs:
+  lean_build:
+    name: Check lean build (--no-default-features)
+    runs-on: ubuntu-22.04
+    env:
+      CC: clang
+      CXX: clang++
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          clean: false
+      - name: Setup Linux dependencies
+        run: ./script/linux
+      - name: Check lean build
+        run: ./script/lean-check
+    timeout-minutes: 60
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.ref_name == 'main' && github.sha || 'anysha' }}
+  cancel-in-progress: true
+defaults:
+  run:
+    shell: bash -euxo pipefail {0}

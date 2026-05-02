@@ -96,6 +96,7 @@ unicode-script.workspace = true
 unindent = { workspace = true, optional = true }
 ui.workspace = true
 ui_input.workspace = true
+image.workspace = true
 url.workspace = true
 util.workspace = true
 uuid.workspace = true
@@ -119,6 +120,7 @@ proptest-derive.workspace = true
 release_channel.workspace = true
 rand.workspace = true
 semver.workspace = true
+tempfile.workspace = true
 settings = { workspace = true, features = ["test-support"] }
 
 text = { workspace = true, features = ["test-support"] }

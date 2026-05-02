@@ -962,6 +962,16 @@ debug = "full"
 lto = false
 codegen-units = 16
 
+[profile.release-min]
+inherits = "release"
+debug = 0
+strip = "symbols"
+split-debuginfo = "off"
+codegen-units = 16
+lto = false
+opt-level = 3
+panic = "abort"
+
 [workspace.lints.rust]
 unexpected_cfgs = { level = "allow" }
 
