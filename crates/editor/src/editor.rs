@@ -14842,6 +14842,21 @@ impl Editor {
         Some((Image::from_bytes(format, content), name))
     }
 
+    fn next_available_image_filename(assets_dir: &std::path::Path, ext: &str) -> String {
+        let candidate = format!("image.{ext}");
+        if !assets_dir.join(&candidate).exists() {
+            return candidate;
+        }
+        let mut counter = 1u32;
+        loop {
+            let candidate = format!("image-{counter}.{ext}");
+            if !assets_dir.join(&candidate).exists() {
+                return candidate;
+            }
+            counter += 1;
+        }
+    }
+
     fn paste_image(
         &mut self,
         image: Image,
@@ -14871,20 +14886,20 @@ impl Editor {
         };
         let assets_dir = doc_dir.join("assets");
         let ext = Self::image_format_extension(image.format());
-        let filename = format!("{}.{}", uuid::Uuid::new_v4(), ext);
-        let file_path = assets_dir.join(&filename);
         let bytes = image.bytes().to_vec();
-        let markdown_link = format!("![{image_name}](assets/{filename})");
 
         let write_task = cx.background_spawn(async move {
             std::fs::create_dir_all(&assets_dir)?;
+            let filename = Self::next_available_image_filename(&assets_dir, ext);
+            let file_path = assets_dir.join(&filename);
             std::fs::write(&file_path, bytes)?;
-            anyhow::Ok(())
+            anyhow::Ok(filename)
         });
 
         let this = cx.weak_entity();
         window.spawn(cx, async move |cx| {
-            if write_task.await.log_err().is_some() {
+            if let Some(filename) = write_task.await.log_err() {
+                let markdown_link = format!("![{image_name}](assets/{filename})");
                 this.update_in(cx, |editor, window, cx| {
                     editor.do_paste(&markdown_link, None, false, window, cx);
                 }).ok();

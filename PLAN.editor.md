@@ -159,6 +159,9 @@ Add to `crates/editor/src/editor_tests.rs`, after the existing markdown paste te
 - Clipboard has both `String` and `Image` entries.
 - Assert only the text is pasted (existing behavior preserved).
 
+#### Manual Test Section
+Copy+paste images here:
+
 ---
 
 ## File changes summary
