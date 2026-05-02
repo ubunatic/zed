@@ -96,6 +96,7 @@ unicode-script.workspace = true
 unindent = { workspace = true, optional = true }
 ui.workspace = true
 ui_input.workspace = true
+image.workspace = true
 url.workspace = true
 util.workspace = true
 uuid.workspace = true

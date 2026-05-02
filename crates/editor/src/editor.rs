@@ -119,7 +119,8 @@ use fuzzy::{StringMatch, StringMatchCandidate};
 use git::blame::{GitBlame, GlobalBlameRenderer};
 use gpui::{
     Action, Animation, AnimationExt, AnyElement, App, AppContext, AsyncWindowContext,
-    AvailableSpace, Background, Bounds, ClickEvent, ClipboardEntry, ClipboardItem, Context,
+    AvailableSpace, Background, Bounds, ClickEvent, ClipboardEntry, ClipboardItem, Context, Image,
+    ImageFormat, Img,
     DispatchPhase, Edges, Entity, EntityId, EntityInputHandler, EventEmitter, FocusHandle,
     FocusOutEvent, Focusable, FontId, FontStyle, FontWeight, Global, HighlightStyle, Hsla,
     KeyContext, Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent, PaintQuad, ParentElement,
@@ -14784,26 +14785,165 @@ impl Editor {
         );
     }
 
+    fn image_format_extension(format: ImageFormat) -> &'static str {
+        match format {
+            ImageFormat::Png => "png",
+            ImageFormat::Jpeg => "jpg",
+            ImageFormat::Webp => "webp",
+            ImageFormat::Gif => "gif",
+            ImageFormat::Bmp => "bmp",
+            ImageFormat::Tiff => "tiff",
+            ImageFormat::Ico => "ico",
+            ImageFormat::Pnm => "pnm",
+            ImageFormat::Svg => "svg",
+        }
+    }
+
+    fn image_format_from_external(format: image::ImageFormat) -> Option<ImageFormat> {
+        match format {
+            image::ImageFormat::Png => Some(ImageFormat::Png),
+            image::ImageFormat::Jpeg => Some(ImageFormat::Jpeg),
+            image::ImageFormat::WebP => Some(ImageFormat::Webp),
+            image::ImageFormat::Gif => Some(ImageFormat::Gif),
+            image::ImageFormat::Bmp => Some(ImageFormat::Bmp),
+            image::ImageFormat::Tiff => Some(ImageFormat::Tiff),
+            image::ImageFormat::Ico => Some(ImageFormat::Ico),
+            image::ImageFormat::Pnm => Some(ImageFormat::Pnm),
+            _ => None,
+        }
+    }
+
+    fn is_raster_image_path(path: &std::path::Path) -> bool {
+        use std::ffi::OsStr;
+        let Some(extension) = path.extension().and_then(OsStr::to_str) else {
+            return false;
+        };
+        if extension.eq_ignore_ascii_case("svg") {
+            return false;
+        }
+        Img::extensions()
+            .iter()
+            .any(|known| known.eq_ignore_ascii_case(extension))
+    }
+
+    fn load_external_image_from_path(
+        path: &std::path::Path,
+        default_name: &SharedString,
+    ) -> Option<(Image, SharedString)> {
+        let content = std::fs::read(path).ok()?;
+        let format = image::guess_format(&content)
+            .ok()
+            .and_then(Self::image_format_from_external)?;
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(|name| SharedString::from(name.to_owned()))
+            .unwrap_or_else(|| default_name.clone());
+        Some((Image::from_bytes(format, content), name))
+    }
+
+    fn paste_image(
+        &mut self,
+        image: Image,
+        image_name: SharedString,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let singleton_buffer = self.buffer.read(cx).as_singleton();
+        let Some(singleton_buffer) = singleton_buffer else {
+            return;
+        };
+        let buffer = singleton_buffer.read(cx);
+        let is_markdown = buffer
+            .language()
+            .map(|lang| lang.name() == "Markdown")
+            .unwrap_or(false);
+        if !is_markdown {
+            return;
+        }
+        let Some(abs_path) = project::File::from_dyn(buffer.file())
+            .map(|file| file.abs_path(cx))
+        else {
+            return;
+        };
+        let Some(doc_dir) = abs_path.parent().map(|p| p.to_path_buf()) else {
+            return;
+        };
+        let assets_dir = doc_dir.join("assets");
+        let ext = Self::image_format_extension(image.format());
+        let filename = format!("{}.{}", uuid::Uuid::new_v4(), ext);
+        let file_path = assets_dir.join(&filename);
+        let bytes = image.bytes().to_vec();
+        let markdown_link = format!("![{image_name}](assets/{filename})");
+
+        let write_task = cx.background_spawn(async move {
+            std::fs::create_dir_all(&assets_dir)?;
+            std::fs::write(&file_path, bytes)?;
+            anyhow::Ok(())
+        });
+
+        let this = cx.weak_entity();
+        window.spawn(cx, async move |cx| {
+            if write_task.await.log_err().is_some() {
+                this.update_in(cx, |editor, window, cx| {
+                    editor.do_paste(&markdown_link, None, false, window, cx);
+                }).ok();
+            }
+        }).detach();
+    }
+
     pub fn paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
         if self.read_only(cx) {
             return;
         }
         self.hide_mouse_cursor(HideMouseCursorOrigin::TypingAction, cx);
         if let Some(item) = cx.read_from_clipboard() {
+            // Priority 1: string entry (existing behavior)
             let clipboard_string = item.entries().iter().find_map(|entry| match entry {
                 ClipboardEntry::String(s) => Some(s),
                 _ => None,
             });
-            match clipboard_string {
-                Some(clipboard_string) => self.do_paste(
+            if let Some(clipboard_string) = clipboard_string {
+                self.do_paste(
                     clipboard_string.text(),
                     clipboard_string.metadata_json::<Vec<ClipboardSelection>>(),
                     true,
                     window,
                     cx,
-                ),
-                _ => self.do_paste(&item.text().unwrap_or_default(), None, true, window, cx),
+                );
+                return;
             }
+            // Priority 2: image entry
+            if let Some(image_entry) = item.entries().iter().find_map(|entry| match entry {
+                ClipboardEntry::Image(img) => Some(img.clone()),
+                _ => None,
+            }) {
+                self.paste_image(image_entry, "Image".into(), window, cx);
+                return;
+            }
+            // Priority 3: external file paths that are images
+            if let Some(paths) = item.entries().iter().find_map(|entry| match entry {
+                ClipboardEntry::ExternalPaths(p) => Some(p.paths().to_owned()),
+                _ => None,
+            }) {
+                let image_paths: Vec<_> = paths
+                    .into_iter()
+                    .filter(|path| Self::is_raster_image_path(path))
+                    .collect();
+                if !image_paths.is_empty() {
+                    let default_name: SharedString = "Image".into();
+                    for path in image_paths {
+                        if let Some((img, name)) =
+                            Self::load_external_image_from_path(&path, &default_name)
+                        {
+                            self.paste_image(img, name, window, cx);
+                        }
+                    }
+                    return;
+                }
+            }
+            // Fallback: paste whatever text is available
+            self.do_paste(&item.text().unwrap_or_default(), None, true, window, cx);
         }
     }
 
