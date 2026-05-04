@@ -334,3 +334,54 @@ ambiguity.
   render paths.
 - The `gate tests` commit (5fc319f) was a manual user commit, not from an agent session. Future
   sessions may want to continue partial test-suite gating in `crates/zed` and `crates/workspace`.
+
+---
+
+## Session: 2026-05-04 — Cleanup audit (no coding task)
+
+### Task completed
+Ran `script/plan-audit` — all items in PLAN.next.md are already marked `[x]`. No coding task
+was available. Updated REVIEW.md last-audited date to 2026-05-04.
+
+---
+
+### Token burn analysis
+
+| Area | Rough cost | Notes |
+|------|-----------|-------|
+| ToolSearch (deferred tools) | Low | 2 batch loads (TodoWrite, list_pull_requests + create_pull_request). `tools:` preload section working. |
+| GitHub MCP reads | Low | list_pull_requests to check for existing open PRs; ROUTINE.yaml fetched from origin/develop. |
+| plan-audit local run | Minimal | Confirmed no unchecked items in one command. |
+| No compilation | — | No cargo invocations this session. |
+
+**Total burn: very low.** Audit-only session with no coding task.
+
+---
+
+### What worked well
+
+- **`tools:` preload** in ROUTINE.yaml kept ToolSearch calls to a minimum.
+- **`script/plan-audit`** immediately confirmed no unchecked items without reading all PLAN files.
+- **Abort criteria** correctly guided stopping after finding no simple task.
+- **Parallel MCP + local reads** (ROUTINE.yaml fetch + plan-audit + file reads) resolved in a
+  few round-trips.
+
+---
+
+### Ideas for improvement
+
+#### 1. ROUTINE.yaml could surface the Known Gaps as candidate tasks
+When `plan-audit` returns nothing, agents currently stop. The Known Gaps section of PLAN.next.md
+lists the `title_bar` collab dep gating as future work. A brief note in ROUTINE.yaml pointing
+agents to Known Gaps as the next source of candidate tasks (when PLAN items are exhausted) would
+prevent the "nothing to do" dead-end without requiring a new PLAN file.
+
+---
+
+### Notes for next session
+
+- **All PLAN.next.md items remain done.** No new items were added.
+- The one remaining known gap: gating `crates/title_bar`'s `call`/`channel`/`livekit_client`
+  dependencies behind a `collab` feature flag. This is the logical next coding task if PLAN.next.md
+  is extended.
+- REVIEW.md updated to *Last audited: 2026-05-04*.
