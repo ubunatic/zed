@@ -30,9 +30,11 @@ inspector = ["gpui_macros/inspector"]
 leak-detection = ["backtrace"]
 wayland = [
     "bitflags",
+    "gpui_platform/wayland",
 ]
 x11 = [
     "scap?/x11",
+    "gpui_platform/x11",
 ]
 screen-capture = [
     "scap",

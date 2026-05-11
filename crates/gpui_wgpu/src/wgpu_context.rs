@@ -387,6 +387,80 @@ impl WgpuContext {
             anyhow::bail!("surface configuration failed: {e}");
         }
 
+        // Verify the driver can compile a vertex shader that reads from a storage buffer.
+        // wgpu unconditionally marks VERTEX_STORAGE as supported for Vulkan, but some
+        // drivers (e.g. V3D 4.2 on Raspberry Pi) report VK_ERROR_FEATURE_NOT_PRESENT or
+        // fail GLSL translation at pipeline-creation time, after adapter selection.
+        let vertex_storage_error = {
+            // Pipeline shader translation errors arrive as Internal, not Validation.
+            let _scope_validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
+            let scope = device.push_error_scope(wgpu::ErrorFilter::Internal);
+            let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("vertex_storage_test"),
+                source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(
+                    "@group(0) @binding(0) var<storage, read> b: array<f32>;\n\
+                     @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {\n\
+                         return vec4f(b[i], 0.0, 0.0, 1.0);\n\
+                     }\n\
+                     @fragment fn fs() -> @location(0) vec4f { return vec4f(1.0); }",
+                )),
+            });
+            let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: None,
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: None,
+                bind_group_layouts: &[Some(&bgl)],
+                immediate_size: 0,
+            });
+            let _ = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("vertex_storage_test_pipeline"),
+                layout: Some(&layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs"),
+                    buffers: &[],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: caps.formats[0],
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                }),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+                cache: None,
+            });
+            let inner = scope.pop().await;
+            let _outer = _scope_validation.pop().await;
+            inner.or(_outer)
+        };
+        if let Some(e) = vertex_storage_error {
+            let info = adapter.get_info();
+            anyhow::bail!(
+                "adapter {} ({:?}) failed vertex storage buffer test: {e}",
+                info.name,
+                info.backend
+            );
+        }
+
         Ok((
             device,
             queue,
