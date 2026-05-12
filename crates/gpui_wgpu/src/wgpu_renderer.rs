@@ -158,6 +158,7 @@ pub struct WgpuRenderer {
     device_lost: std::sync::Arc<std::sync::atomic::AtomicBool>,
     surface_configured: bool,
     needs_redraw: bool,
+    vertex_storage: bool,
 }
 
 impl WgpuRenderer {
@@ -316,6 +317,7 @@ impl WgpuRenderer {
 
         let device = Arc::clone(&context.device);
         let max_texture_size = device.limits().max_texture_dimension_2d;
+        let vertex_storage = context.gpu_capabilities().vertex_storage;
 
         let requested_width = config.size.width.0 as u32;
         let requested_height = config.size.height.0 as u32;
@@ -351,7 +353,7 @@ impl WgpuRenderer {
         let dual_source_blending = context.supports_dual_source_blending();
 
         let rendering_params = RenderingParameters::new(&context.adapter, surface_format);
-        let bind_group_layouts = Self::create_bind_group_layouts(&device);
+        let bind_group_layouts = Self::create_bind_group_layouts(&device, vertex_storage);
         let pipelines = Self::create_pipelines(
             &device,
             &bind_group_layouts,
@@ -359,6 +361,7 @@ impl WgpuRenderer {
             alpha_mode,
             rendering_params.path_sample_count,
             dual_source_blending,
+            vertex_storage,
         );
 
         let atlas_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -384,10 +387,15 @@ impl WgpuRenderer {
         let max_buffer_size = device.limits().max_buffer_size;
         let storage_buffer_alignment = device.limits().min_storage_buffer_offset_alignment as u64;
         let initial_instance_buffer_capacity = 2 * 1024 * 1024;
+        let instance_buffer_usage = if vertex_storage {
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST
+        } else {
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST
+        };
         let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("instance_buffer"),
             size: initial_instance_buffer_capacity,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            usage: instance_buffer_usage,
             mapped_at_creation: false,
         });
 
@@ -488,10 +496,11 @@ impl WgpuRenderer {
             device_lost: context.device_lost_flag(),
             surface_configured: true,
             needs_redraw: false,
+            vertex_storage,
         })
     }
 
-    fn create_bind_group_layouts(device: &wgpu::Device) -> WgpuBindGroupLayouts {
+    fn create_bind_group_layouts(device: &wgpu::Device, vertex_storage: bool) -> WgpuBindGroupLayouts {
         let globals =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("globals_layout"),
@@ -523,9 +532,16 @@ impl WgpuRenderer {
                 ],
             });
 
+        // In VBO mode vertex shaders read instance data from vertex attributes,
+        // so storage buffer bindings only need to be visible to fragment shaders.
+        let ssbo_visibility = if vertex_storage {
+            wgpu::ShaderStages::VERTEX_FRAGMENT
+        } else {
+            wgpu::ShaderStages::FRAGMENT
+        };
         let storage_buffer_entry = |binding: u32| wgpu::BindGroupLayoutEntry {
             binding,
-            visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+            visibility: ssbo_visibility,
             ty: wgpu::BindingType::Buffer {
                 ty: wgpu::BufferBindingType::Storage { read_only: true },
                 has_dynamic_offset: false,
@@ -622,6 +638,7 @@ impl WgpuRenderer {
         alpha_mode: wgpu::CompositeAlphaMode,
         path_sample_count: u32,
         dual_source_blending: bool,
+        vertex_storage: bool,
     ) -> WgpuPipelines {
         // Diagnostic guard: verify the device actually has
         // DUAL_SOURCE_BLENDING. We have a crash report (ZED-5G1) where a
@@ -685,7 +702,8 @@ impl WgpuRenderer {
                                topology: wgpu::PrimitiveTopology,
                                color_targets: &[Option<wgpu::ColorTargetState>],
                                sample_count: u32,
-                               module: &wgpu::ShaderModule| {
+                               module: &wgpu::ShaderModule,
+                               buffers: &[wgpu::VertexBufferLayout<'_>]| {
             let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some(&format!("{name}_layout")),
                 bind_group_layouts: &[Some(globals_layout), Some(data_layout)],
@@ -698,7 +716,7 @@ impl WgpuRenderer {
                 vertex: wgpu::VertexState {
                     module,
                     entry_point: Some(vs_entry),
-                    buffers: &[],
+                    buffers,
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                 },
                 fragment: Some(wgpu::FragmentState {
@@ -727,21 +745,123 @@ impl WgpuRenderer {
             })
         };
 
+        // VBO vertex buffer layouts — used when vertex_storage is false.
+        // Struct offsets are derived from the #[repr(C)] definitions in scene.rs.
+        let quad_vbo_attrs = [
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 8,  shader_location: 0 },
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 24, shader_location: 1 },
+        ];
+        let quad_vbo_layout = wgpu::VertexBufferLayout {
+            array_stride: 160,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &quad_vbo_attrs,
+        };
+
+        let shadow_vbo_attrs = [
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32,   offset: 4,  shader_location: 0 },
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 8,  shader_location: 1 },
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 40, shader_location: 2 },
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 56, shader_location: 3 },
+        ];
+        let shadow_vbo_layout = wgpu::VertexBufferLayout {
+            array_stride: 72,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &shadow_vbo_attrs,
+        };
+
+        // xy_position@0, st_position@8, bounds@88; step Vertex
+        let path_raster_vbo_attrs = [
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x2, offset: 0,  shader_location: 0 },
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x2, offset: 8,  shader_location: 1 },
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 88, shader_location: 2 },
+        ];
+        let path_raster_vbo_layout = wgpu::VertexBufferLayout {
+            array_stride: 104,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &path_raster_vbo_attrs,
+        };
+
+        let path_vbo_attrs = [
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 0, shader_location: 0 },
+        ];
+        let path_vbo_layout = wgpu::VertexBufferLayout {
+            array_stride: 16,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &path_vbo_attrs,
+        };
+
+        let underline_vbo_attrs = [
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 8,  shader_location: 0 },
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 24, shader_location: 1 },
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 40, shader_location: 2 },
+        ];
+        let underline_vbo_layout = wgpu::VertexBufferLayout {
+            array_stride: 64,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &underline_vbo_attrs,
+        };
+
+        // bounds@8, content_mask@24, color@40, tile.bounds@72(Sint32x4),
+        // rotation_scale@88, translation@104
+        let sprite_vbo_attrs = [
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 8,   shader_location: 0 },
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 24,  shader_location: 1 },
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 40,  shader_location: 2 },
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Sint32x4,  offset: 72,  shader_location: 3 },
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 88,  shader_location: 4 },
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x2, offset: 104, shader_location: 5 },
+        ];
+        let mono_sprite_vbo_layout = wgpu::VertexBufferLayout {
+            array_stride: 112,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &sprite_vbo_attrs,
+        };
+        let subpixel_sprite_vbo_layout = wgpu::VertexBufferLayout {
+            array_stride: 112,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &sprite_vbo_attrs,
+        };
+
+        // bounds@16, content_mask@32, tile.bounds@80(Sint32x4)
+        let poly_sprite_vbo_attrs = [
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 16, shader_location: 0 },
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 32, shader_location: 1 },
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Sint32x4,  offset: 80, shader_location: 2 },
+        ];
+        let poly_sprite_vbo_layout = wgpu::VertexBufferLayout {
+            array_stride: 96,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &poly_sprite_vbo_attrs,
+        };
+
+        let vs_quad        = if vertex_storage { "vs_quad"              } else { "vs_quad_vbo"              };
+        let fs_quad        = if vertex_storage { "fs_quad"              } else { "fs_quad_vbo"              };
+        let vs_shadow      = if vertex_storage { "vs_shadow"            } else { "vs_shadow_vbo"            };
+        let vs_path_raster = if vertex_storage { "vs_path_rasterization"} else { "vs_path_rasterization_vbo"};
+        let vs_path        = if vertex_storage { "vs_path"              } else { "vs_path_vbo"              };
+        let vs_underline   = if vertex_storage { "vs_underline"         } else { "vs_underline_vbo"         };
+        let vs_mono        = if vertex_storage { "vs_mono_sprite"       } else { "vs_mono_sprite_vbo"       };
+        let vs_subpixel    = if vertex_storage { "vs_subpixel_sprite"   } else { "vs_subpixel_sprite_vbo"   };
+        let vs_poly        = if vertex_storage { "vs_poly_sprite"       } else { "vs_poly_sprite_vbo"       };
+
+        let no_vbo: &[wgpu::VertexBufferLayout<'_>] = &[];
+
         let quads = create_pipeline(
             "quads",
-            "vs_quad",
-            "fs_quad",
+            vs_quad,
+            fs_quad,
             &layouts.globals,
             &layouts.instances,
             wgpu::PrimitiveTopology::TriangleStrip,
             &[Some(color_target.clone())],
             1,
             &shader_module,
+            if vertex_storage { no_vbo } else { std::slice::from_ref(&quad_vbo_layout) },
         );
 
         let shadows = create_pipeline(
             "shadows",
-            "vs_shadow",
+            vs_shadow,
             "fs_shadow",
             &layouts.globals,
             &layouts.instances,
@@ -749,11 +869,12 @@ impl WgpuRenderer {
             &[Some(color_target.clone())],
             1,
             &shader_module,
+            if vertex_storage { no_vbo } else { std::slice::from_ref(&shadow_vbo_layout) },
         );
 
         let path_rasterization = create_pipeline(
             "path_rasterization",
-            "vs_path_rasterization",
+            vs_path_raster,
             "fs_path_rasterization",
             &layouts.globals,
             &layouts.instances,
@@ -765,6 +886,7 @@ impl WgpuRenderer {
             })],
             path_sample_count,
             &shader_module,
+            if vertex_storage { no_vbo } else { std::slice::from_ref(&path_raster_vbo_layout) },
         );
 
         let paths_blend = wgpu::BlendState {
@@ -782,7 +904,7 @@ impl WgpuRenderer {
 
         let paths = create_pipeline(
             "paths",
-            "vs_path",
+            vs_path,
             "fs_path",
             &layouts.globals,
             &layouts.instances_with_texture,
@@ -794,11 +916,12 @@ impl WgpuRenderer {
             })],
             1,
             &shader_module,
+            if vertex_storage { no_vbo } else { std::slice::from_ref(&path_vbo_layout) },
         );
 
         let underlines = create_pipeline(
             "underlines",
-            "vs_underline",
+            vs_underline,
             "fs_underline",
             &layouts.globals,
             &layouts.instances,
@@ -806,11 +929,12 @@ impl WgpuRenderer {
             &[Some(color_target.clone())],
             1,
             &shader_module,
+            if vertex_storage { no_vbo } else { std::slice::from_ref(&underline_vbo_layout) },
         );
 
         let mono_sprites = create_pipeline(
             "mono_sprites",
-            "vs_mono_sprite",
+            vs_mono,
             "fs_mono_sprite",
             &layouts.globals,
             &layouts.instances_with_texture,
@@ -818,6 +942,7 @@ impl WgpuRenderer {
             &[Some(color_target.clone())],
             1,
             &shader_module,
+            if vertex_storage { no_vbo } else { std::slice::from_ref(&mono_sprite_vbo_layout) },
         );
 
         let subpixel_sprites = if let Some(subpixel_module) = &subpixel_shader_module {
@@ -836,7 +961,7 @@ impl WgpuRenderer {
 
             Some(create_pipeline(
                 "subpixel_sprites",
-                "vs_subpixel_sprite",
+                vs_subpixel,
                 "fs_subpixel_sprite",
                 &layouts.globals,
                 &layouts.instances_with_texture,
@@ -848,6 +973,7 @@ impl WgpuRenderer {
                 })],
                 1,
                 subpixel_module,
+                if vertex_storage { no_vbo } else { std::slice::from_ref(&subpixel_sprite_vbo_layout) },
             ))
         } else {
             None
@@ -855,7 +981,7 @@ impl WgpuRenderer {
 
         let poly_sprites = create_pipeline(
             "poly_sprites",
-            "vs_poly_sprite",
+            vs_poly,
             "fs_poly_sprite",
             &layouts.globals,
             &layouts.instances_with_texture,
@@ -863,6 +989,7 @@ impl WgpuRenderer {
             &[Some(color_target.clone())],
             1,
             &shader_module,
+            if vertex_storage { no_vbo } else { std::slice::from_ref(&poly_sprite_vbo_layout) },
         );
 
         let surfaces = create_pipeline(
@@ -875,6 +1002,7 @@ impl WgpuRenderer {
             &[Some(color_target)],
             1,
             &shader_module,
+            no_vbo,
         );
 
         WgpuPipelines {
@@ -1035,6 +1163,7 @@ impl WgpuRenderer {
             let surface_config = self.surface_config.clone();
             let path_sample_count = self.rendering_params.path_sample_count;
             let dual_source_blending = self.dual_source_blending;
+            let vertex_storage = self.vertex_storage;
             let resources = self.resources_mut();
             resources
                 .surface
@@ -1046,6 +1175,7 @@ impl WgpuRenderer {
                 surface_config.alpha_mode,
                 path_sample_count,
                 dual_source_blending,
+                vertex_storage,
             );
         }
     }
@@ -1474,6 +1604,9 @@ impl WgpuRenderer {
         pass.set_pipeline(pipeline);
         pass.set_bind_group(0, &resources.globals_bind_group, &[]);
         pass.set_bind_group(1, &bind_group, &[]);
+        if !self.vertex_storage {
+            pass.set_vertex_buffer(0, resources.instance_buffer.slice(offset..offset + size.get()));
+        }
         pass.draw(0..4, 0..instance_count);
         true
     }
@@ -1517,6 +1650,9 @@ impl WgpuRenderer {
         pass.set_pipeline(pipeline);
         pass.set_bind_group(0, &resources.globals_bind_group, &[]);
         pass.set_bind_group(1, &bind_group, &[]);
+        if !self.vertex_storage {
+            pass.set_vertex_buffer(0, resources.instance_buffer.slice(offset..offset + size.get()));
+        }
         pass.draw(0..4, 0..instance_count);
         true
     }
@@ -1638,6 +1774,9 @@ impl WgpuRenderer {
             pass.set_pipeline(&resources.pipelines.path_rasterization);
             pass.set_bind_group(0, &resources.path_globals_bind_group, &[]);
             pass.set_bind_group(1, &data_bind_group, &[]);
+            if !self.vertex_storage {
+                pass.set_vertex_buffer(0, resources.instance_buffer.slice(vertex_offset..vertex_offset + vertex_size.get()));
+            }
             pass.draw(0..vertices.len() as u32, 0..1);
         }
 
@@ -1647,11 +1786,17 @@ impl WgpuRenderer {
     fn grow_instance_buffer(&mut self) {
         let new_capacity = (self.instance_buffer_capacity * 2).min(self.max_buffer_size);
         log::info!("increased instance buffer size to {}", new_capacity);
+        let vertex_storage = self.vertex_storage;
         let resources = self.resources_mut();
+        let usage = if vertex_storage {
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST
+        } else {
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST
+        };
         resources.instance_buffer = resources.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("instance_buffer"),
             size: new_capacity,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            usage,
             mapped_at_creation: false,
         });
         self.instance_buffer_capacity = new_capacity;

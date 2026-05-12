@@ -6,6 +6,19 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use wgpu::TextureFormat;
 
+/// Shader-stage capabilities detected at adapter selection time.
+///
+/// Some drivers (e.g. V3D 4.2 on Raspberry Pi) support storage buffers in fragment
+/// shaders but not vertex shaders. The renderer uses this to choose between the standard
+/// SSBO path and a VBO-based instancing path for vertex data.
+#[derive(Clone, Copy, Debug)]
+pub struct GpuCapabilities {
+    /// Storage buffers are readable in vertex shaders.
+    pub vertex_storage: bool,
+    /// Storage buffers are readable in fragment shaders.
+    pub fragment_storage: bool,
+}
+
 pub struct WgpuContext {
     pub instance: wgpu::Instance,
     pub adapter: wgpu::Adapter,
@@ -13,6 +26,7 @@ pub struct WgpuContext {
     pub queue: Arc<wgpu::Queue>,
     dual_source_blending: bool,
     color_texture_format: wgpu::TextureFormat,
+    gpu_capabilities: GpuCapabilities,
     device_lost: Arc<AtomicBool>,
 }
 
@@ -62,7 +76,7 @@ impl WgpuContext {
 
         // Select an adapter by actually testing surface configuration with the real device.
         // This is the only reliable way to determine compatibility on hybrid GPU systems.
-        let (adapter, device, queue, dual_source_blending, color_texture_format) =
+        let (adapter, device, queue, dual_source_blending, color_texture_format, gpu_capabilities) =
             gpui::block_on(Self::select_adapter_and_device(
                 &instance,
                 device_id_filter,
@@ -95,6 +109,7 @@ impl WgpuContext {
             queue: Arc::new(queue),
             dual_source_blending,
             color_texture_format,
+            gpu_capabilities,
             device_lost,
         })
     }
@@ -135,6 +150,11 @@ impl WgpuContext {
             queue: Arc::new(queue),
             dual_source_blending,
             color_texture_format,
+            // WebGPU/WASM targets support vertex storage buffers per spec.
+            gpu_capabilities: GpuCapabilities {
+                vertex_storage: true,
+                fragment_storage: true,
+            },
             device_lost,
         })
     }
@@ -224,6 +244,7 @@ impl WgpuContext {
         wgpu::Queue,
         bool,
         TextureFormat,
+        GpuCapabilities,
     )> {
         let mut adapters: Vec<_> = instance.enumerate_adapters(wgpu::Backends::all()).await;
 
@@ -322,7 +343,7 @@ impl WgpuContext {
             log::info!("Testing adapter: {} ({:?})...", info.name, info.backend);
 
             match Self::try_adapter_with_surface(&adapter, surface).await {
-                Ok((device, queue, dual_source_blending, color_atlas_texture_format)) => {
+                Ok((device, queue, dual_source_blending, color_atlas_texture_format, capabilities)) => {
                     log::info!(
                         "Selected GPU (passed configuration test): {} ({:?})",
                         info.name,
@@ -334,6 +355,7 @@ impl WgpuContext {
                         queue,
                         dual_source_blending,
                         color_atlas_texture_format,
+                        capabilities,
                     ));
                 }
                 Err(e) => {
@@ -351,12 +373,16 @@ impl WgpuContext {
     }
 
     /// Try to use an adapter with a surface by creating a device and testing configuration.
-    /// Returns the device and queue if successful, allowing them to be reused.
+    /// Returns the device, queue, and detected capabilities if successful.
+    ///
+    /// Rejects the adapter only on surface configuration failure. Missing vertex storage
+    /// support is recorded as a capability, not a rejection — the renderer will use a
+    /// VBO-based instancing path for vertex data on such adapters.
     #[cfg(not(target_family = "wasm"))]
     async fn try_adapter_with_surface(
         adapter: &wgpu::Adapter,
         surface: &wgpu::Surface<'_>,
-    ) -> anyhow::Result<(wgpu::Device, wgpu::Queue, bool, TextureFormat)> {
+    ) -> anyhow::Result<(wgpu::Device, wgpu::Queue, bool, TextureFormat, GpuCapabilities)> {
         let caps = surface.get_capabilities(adapter);
         if caps.formats.is_empty() {
             anyhow::bail!("no compatible surface formats");
@@ -387,86 +413,125 @@ impl WgpuContext {
             anyhow::bail!("surface configuration failed: {e}");
         }
 
-        // Verify the driver can compile a vertex shader that reads from a storage buffer.
-        // wgpu unconditionally marks VERTEX_STORAGE as supported for Vulkan, but some
-        // drivers (e.g. V3D 4.2 on Raspberry Pi) report VK_ERROR_FEATURE_NOT_PRESENT or
-        // fail GLSL translation at pipeline-creation time, after adapter selection.
-        let vertex_storage_error = {
-            // Pipeline shader translation errors arrive as Internal, not Validation.
-            let _scope_validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
-            let scope = device.push_error_scope(wgpu::ErrorFilter::Internal);
-            let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("vertex_storage_test"),
-                source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(
-                    "@group(0) @binding(0) var<storage, read> b: array<f32>;\n\
-                     @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {\n\
-                         return vec4f(b[i], 0.0, 0.0, 1.0);\n\
-                     }\n\
-                     @fragment fn fs() -> @location(0) vec4f { return vec4f(1.0); }",
-                )),
-            });
-            let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: None,
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
-            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: None,
-                bind_group_layouts: &[Some(&bgl)],
-                immediate_size: 0,
-            });
-            let _ = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("vertex_storage_test_pipeline"),
-                layout: Some(&layout),
-                vertex: wgpu::VertexState {
-                    module: &shader,
-                    entry_point: Some("vs"),
-                    buffers: &[],
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: Some("fs"),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: caps.formats[0],
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                }),
-                primitive: wgpu::PrimitiveState::default(),
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState::default(),
-                multiview_mask: None,
-                cache: None,
-            });
-            let inner = scope.pop().await;
-            let _outer = _scope_validation.pop().await;
-            inner.or(_outer)
+        let surface_format = caps.formats[0];
+        let vertex_storage = Self::probe_storage_in_stage(
+            &device,
+            surface_format,
+            wgpu::ShaderStages::VERTEX,
+            // Vertex shader reads directly from the storage buffer.
+            "@group(0) @binding(0) var<storage, read> b: array<f32>;\
+             @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {\
+                 return vec4f(b[i], 0.0, 0.0, 1.0);\
+             }\
+             @fragment fn fs() -> @location(0) vec4f { return vec4f(1.0); }",
+            "vertex",
+        )
+        .await;
+
+        let fragment_storage = Self::probe_storage_in_stage(
+            &device,
+            surface_format,
+            wgpu::ShaderStages::FRAGMENT,
+            // Only the fragment shader reads from the storage buffer.
+            "@group(0) @binding(0) var<storage, read> b: array<f32>;\
+             @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {\
+                 return vec4f(0.0, 0.0, 0.0, 1.0);\
+             }\
+             @fragment fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {\
+                 return vec4f(b[u32(pos.x)], 0.0, 0.0, 1.0);\
+             }",
+            "fragment",
+        )
+        .await;
+
+        let info = adapter.get_info();
+        log::info!(
+            "  {} ({:?}): vertex_storage={}, fragment_storage={}",
+            info.name,
+            info.backend,
+            vertex_storage,
+            fragment_storage,
+        );
+
+        let gpu_capabilities = GpuCapabilities {
+            vertex_storage,
+            fragment_storage,
         };
-        if let Some(e) = vertex_storage_error {
-            let info = adapter.get_info();
-            anyhow::bail!(
-                "adapter {} ({:?}) failed vertex storage buffer test: {e}",
-                info.name,
-                info.backend
-            );
-        }
 
         Ok((
             device,
             queue,
             dual_source_blending,
             color_atlas_texture_format,
+            gpu_capabilities,
         ))
+    }
+
+    /// Returns true if the driver can compile a render pipeline that reads from a
+    /// storage buffer visible only to `stage`. Uses error scopes to catch both
+    /// Internal (GLSL translation) and Validation errors without panicking.
+    #[cfg(not(target_family = "wasm"))]
+    async fn probe_storage_in_stage(
+        device: &wgpu::Device,
+        surface_format: wgpu::TextureFormat,
+        stage: wgpu::ShaderStages,
+        wgsl: &str,
+        label: &str,
+    ) -> bool {
+        let scope_validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let scope_internal = device.push_error_scope(wgpu::ErrorFilter::Internal);
+
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some(label),
+            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(wgsl)),
+        });
+        let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: stage,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[Some(&bgl)],
+            immediate_size: 0,
+        });
+        let _ = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some(label),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs"),
+                buffers: &[],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: surface_format,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+
+        let err_internal = scope_internal.pop().await;
+        let err_validation = scope_validation.pop().await;
+        err_internal.is_none() && err_validation.is_none()
     }
 
     fn select_color_texture_format(adapter: &wgpu::Adapter) -> anyhow::Result<wgpu::TextureFormat> {
@@ -508,6 +573,10 @@ impl WgpuContext {
 
     pub fn color_texture_format(&self) -> wgpu::TextureFormat {
         self.color_texture_format
+    }
+
+    pub fn gpu_capabilities(&self) -> GpuCapabilities {
+        self.gpu_capabilities
     }
 
     /// Returns true if the GPU device was lost (e.g., due to driver crash, suspend/resume).

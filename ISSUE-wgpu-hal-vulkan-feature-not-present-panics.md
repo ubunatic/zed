@@ -149,6 +149,59 @@ This avoids the panic in both bugs: Bug 1 is caught because `DeviceError::Unexpe
 propagates as `Err`; Bug 2 is caught because the pipeline error is inside an error scope
 rather than hitting `default_error_handler`.
 
+---
+
+## V3D OpenGL is not a viable fallback (with current shaders)
+
+An obvious question after fixing the V3D Vulkan path is whether the V3D GL adapter
+(also enumerated by wgpu on this hardware) could serve as a fallback. Not with the
+current shaders — but V3D GL is viable once the vertex shader accesses are replaced
+with VBO-based instancing (see `PLAN-v3d-no-vertex-ssbo.md`).
+
+The smoke test correctly rejects V3D GL with the same error:
+
+```
+Shader translation error for stage ShaderStages(VERTEX | FRAGMENT):
+error: Too many vertex shader storage blocks (1/0)
+```
+
+### V3D SSBO support matrix
+
+| Stage    | Vulkan | OpenGL ES 3.1 |
+|----------|--------|----------------|
+| Vertex   | 0      | 0              |
+| Fragment | 8      | supported      |
+| Compute  | 8      | supported      |
+
+V3D 4.2 supports 0 vertex-stage SSBOs on both backends. Mesa's NIR compiler enforces
+this at shader translation time regardless of API. Fragment and compute SSBOs work
+normally (confirmed by Mesa `GL_ARB_shader_storage_buffer_object` and Vulkan
+`maxPerStageDescriptorStorageBuffers = 8`).
+
+Zed's rendering architecture uses `var<storage, read>` in the vertex stage for every
+pipeline: quads, shadows, path vertices, path sprites, underlines, monochrome sprites,
+and polychrome sprites. There is no vertex-buffer-based fallback path in the current
+codebase.
+
+**Current result on Raspberry Pi 400:** the adapter selection falls through to
+`llvmpipe (LLVM 19.1.7)` (Vulkan, CPU type), which does support vertex SSBOs. Zed
+runs but displays the warning:
+
+> Zed uses Vulkan for rendering and requires a compatible GPU. Currently you are using
+> a software emulated GPU (llvmpipe ...) which will result in awful performance.
+
+### Path to hardware rendering
+
+Since V3D supports fragment SSBOs, the fix does not require rewriting fragment shaders.
+Only the vertex shaders need to change: replace the `var<storage, read>` SSBO accesses
+with `@location(N)` vertex attributes fed by a VBO with `PerInstance` step mode. The
+instance buffer gains `BufferUsages::VERTEX` alongside its existing `STORAGE` flag; the
+bind group layout for instance data changes from `VERTEX_FRAGMENT` to `FRAGMENT`-only
+visibility. Fragment shaders continue to index into the SSBO via `instance_id` varyings,
+unchanged.
+
+See `PLAN-v3d-no-vertex-ssbo.md` for the full implementation plan.
+
 ## Build notes: applying patches to the Cargo git cache
 
 The wgpu fixes live in the Cargo git checkout, not in the Zed tree:

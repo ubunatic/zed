@@ -1334,3 +1334,413 @@ fn fs_surface(input: SurfaceVarying) -> @location(0) vec4<f32> {
 
     return ycbcr_to_RGB * y_cb_cr;
 }
+
+// =============================================================================
+// VBO paths — used on adapters where vertex-stage storage buffers are
+// unsupported (e.g. V3D 4.2 on Raspberry Pi).  The instance buffer is bound
+// simultaneously as a storage buffer (FRAGMENT-only visibility) and a vertex
+// buffer.  Vertex shaders read per-instance data from @location(N) vertex
+// attributes; fragment shaders read full structs from the SSBO as usual.
+// =============================================================================
+
+// --- quads (VBO) ---
+// Quad stride 160: bounds@8 (Float32x4), content_mask@24 (Float32x4).
+
+struct QuadInstanceVbo {
+    @location(0) bounds:       vec4<f32>,
+    @location(1) content_mask: vec4<f32>,
+}
+
+struct QuadVaryingVbo {
+    @builtin(position)              position:       vec4<f32>,
+    @location(0) @interpolate(flat) quad_id:        u32,
+    @location(1)                    clip_distances: vec4<f32>,
+}
+
+@vertex
+fn vs_quad_vbo(
+    @builtin(vertex_index)   vertex_id:   u32,
+    @builtin(instance_index) instance_id: u32,
+    inst: QuadInstanceVbo,
+) -> QuadVaryingVbo {
+    let unit_vertex  = vec2<f32>(f32(vertex_id & 1u), 0.5 * f32(vertex_id & 2u));
+    let bounds       = Bounds(inst.bounds.xy, inst.bounds.zw);
+    let content_mask = Bounds(inst.content_mask.xy, inst.content_mask.zw);
+    var out = QuadVaryingVbo();
+    out.position       = to_device_position(unit_vertex, bounds);
+    out.quad_id        = instance_id;
+    out.clip_distances = distance_from_clip_rect(unit_vertex, bounds, content_mask);
+    return out;
+}
+
+@fragment
+fn fs_quad_vbo(input: QuadVaryingVbo) -> @location(0) vec4<f32> {
+    if (any(input.clip_distances < vec4<f32>(0.0))) {
+        return vec4<f32>(0.0);
+    }
+    let quad = b_quads[input.quad_id];
+    let gradient = prepare_gradient_color(
+        quad.background.tag, quad.background.color_space,
+        quad.background.solid, quad.background.colors,
+    );
+    let background_color = gradient_color(
+        quad.background, input.position.xy, quad.bounds,
+        gradient.solid, gradient.color0, gradient.color1,
+    );
+
+    let unrounded = quad.corner_radii.top_left == 0.0 &&
+        quad.corner_radii.bottom_left == 0.0 &&
+        quad.corner_radii.top_right == 0.0 &&
+        quad.corner_radii.bottom_right == 0.0;
+
+    if (quad.border_widths.top == 0.0 &&
+            quad.border_widths.left == 0.0 &&
+            quad.border_widths.right == 0.0 &&
+            quad.border_widths.bottom == 0.0 &&
+            unrounded) {
+        return blend_color(background_color, 1.0);
+    }
+
+    let size           = quad.bounds.size;
+    let half_size      = size / 2.0;
+    let point          = input.position.xy - quad.bounds.origin;
+    let center_to_point = point - half_size;
+
+    let antialias_threshold = 0.5;
+    let corner_radius = pick_corner_radius(center_to_point, quad.corner_radii);
+    let border = vec2<f32>(
+        select(quad.border_widths.right, quad.border_widths.left, center_to_point.x < 0.0),
+        select(quad.border_widths.bottom, quad.border_widths.top, center_to_point.y < 0.0));
+    let reduced_border = vec2<f32>(
+        select(border.x, -antialias_threshold, border.x == 0.0),
+        select(border.y, -antialias_threshold, border.y == 0.0));
+    let corner_to_point              = abs(center_to_point) - half_size;
+    let corner_center_to_point       = corner_to_point + corner_radius;
+    let is_near_rounded_corner       = corner_center_to_point.x >= 0 && corner_center_to_point.y >= 0;
+    let straight_border_inner_corner_to_point = corner_to_point + reduced_border;
+    let is_beyond_inner_straight_border =
+        straight_border_inner_corner_to_point.x > 0 || straight_border_inner_corner_to_point.y > 0;
+    let is_within_inner_straight_border =
+        straight_border_inner_corner_to_point.x < -antialias_threshold &&
+        straight_border_inner_corner_to_point.y < -antialias_threshold;
+    if (is_within_inner_straight_border && !is_near_rounded_corner) {
+        return blend_color(background_color, 1.0);
+    }
+
+    let outer_sdf = quad_sdf_impl(corner_center_to_point, corner_radius);
+    var inner_sdf = 0.0;
+    if (corner_center_to_point.x <= 0 || corner_center_to_point.y <= 0) {
+        inner_sdf = -max(straight_border_inner_corner_to_point.x,
+                         straight_border_inner_corner_to_point.y);
+    } else if (is_beyond_inner_straight_border) {
+        inner_sdf = -1.0;
+    } else if (reduced_border.x == reduced_border.y) {
+        inner_sdf = -(outer_sdf + reduced_border.x);
+    } else {
+        let ellipse_radii = max(vec2<f32>(0.0), corner_radius - reduced_border);
+        inner_sdf = quarter_ellipse_sdf(corner_center_to_point, ellipse_radii);
+    }
+
+    let border_sdf = max(inner_sdf, outer_sdf);
+    var color = background_color;
+    if (border_sdf < antialias_threshold) {
+        var border_color = hsla_to_rgba(quad.border_color);
+        if (quad.border_style == 1) {
+            var t = 0.0;
+            var max_t = 0.0;
+            let dash_length_per_width  = 2.0;
+            let dash_gap_per_width     = 1.0;
+            let dash_period_per_width  = dash_length_per_width + dash_gap_per_width;
+            var dash_velocity = 0.0;
+            let dv_numerator  = 1.0 / dash_period_per_width;
+            if (unrounded) {
+                let is_horizontal = corner_center_to_point.x < corner_center_to_point.y;
+                let dashed_border = vec2<f32>(
+                    max(quad.border_widths.bottom, quad.border_widths.top),
+                    max(quad.border_widths.right,  quad.border_widths.left));
+                let border_width = select(dashed_border.y, dashed_border.x, is_horizontal);
+                dash_velocity = dv_numerator / border_width;
+                t     = select(point.y, point.x, is_horizontal) * dash_velocity;
+                max_t = select(size.y,  size.x,  is_horizontal) * dash_velocity;
+            } else {
+                let r_tr = quad.corner_radii.top_right;
+                let r_br = quad.corner_radii.bottom_right;
+                let r_bl = quad.corner_radii.bottom_left;
+                let r_tl = quad.corner_radii.top_left;
+                let w_t  = quad.border_widths.top;
+                let w_r  = quad.border_widths.right;
+                let w_b  = quad.border_widths.bottom;
+                let w_l  = quad.border_widths.left;
+                let dv_t = select(dv_numerator / w_t, 0.0, w_t <= 0.0);
+                let dv_r = select(dv_numerator / w_r, 0.0, w_r <= 0.0);
+                let dv_b = select(dv_numerator / w_b, 0.0, w_b <= 0.0);
+                let dv_l = select(dv_numerator / w_l, 0.0, w_l <= 0.0);
+                let s_t  = (size.x - r_tl - r_tr) * dv_t;
+                let s_r  = (size.y - r_tr - r_br) * dv_r;
+                let s_b  = (size.x - r_br - r_bl) * dv_b;
+                let s_l  = (size.y - r_bl - r_tl) * dv_l;
+                let corner_dash_velocity_tr = corner_dash_velocity(dv_t, dv_r);
+                let corner_dash_velocity_br = corner_dash_velocity(dv_b, dv_r);
+                let corner_dash_velocity_bl = corner_dash_velocity(dv_b, dv_l);
+                let corner_dash_velocity_tl = corner_dash_velocity(dv_t, dv_l);
+                let c_tr    = r_tr * (M_PI_F / 2.0) * corner_dash_velocity_tr;
+                let c_br    = r_br * (M_PI_F / 2.0) * corner_dash_velocity_br;
+                let c_bl    = r_bl * (M_PI_F / 2.0) * corner_dash_velocity_bl;
+                let c_tl    = r_tl * (M_PI_F / 2.0) * corner_dash_velocity_tl;
+                let upto_tr = s_t;
+                let upto_r  = upto_tr + c_tr;
+                let upto_br = upto_r  + s_r;
+                let upto_b  = upto_br + c_br;
+                let upto_bl = upto_b  + s_b;
+                let upto_l  = upto_bl + c_bl;
+                let upto_tl = upto_l  + s_l;
+                max_t = upto_tl + c_tl;
+                if (is_near_rounded_corner) {
+                    let radians  = atan2(corner_center_to_point.y, corner_center_to_point.x);
+                    let corner_t = radians * corner_radius;
+                    if (center_to_point.x >= 0.0) {
+                        if (center_to_point.y < 0.0) {
+                            dash_velocity = corner_dash_velocity_tr;
+                            t = upto_r  - corner_t * dash_velocity;
+                        } else {
+                            dash_velocity = corner_dash_velocity_br;
+                            t = upto_br + corner_t * dash_velocity;
+                        }
+                    } else {
+                        if (center_to_point.y >= 0.0) {
+                            dash_velocity = corner_dash_velocity_bl;
+                            t = upto_l  - corner_t * dash_velocity;
+                        } else {
+                            dash_velocity = corner_dash_velocity_tl;
+                            t = upto_tl + corner_t * dash_velocity;
+                        }
+                    }
+                } else {
+                    let is_horizontal = corner_center_to_point.x < corner_center_to_point.y;
+                    if (is_horizontal) {
+                        if (center_to_point.y < 0.0) {
+                            dash_velocity = dv_t;
+                            t = (point.x - r_tl) * dash_velocity;
+                        } else {
+                            dash_velocity = dv_b;
+                            t = upto_bl - (point.x - r_bl) * dash_velocity;
+                        }
+                    } else {
+                        if (center_to_point.x < 0.0) {
+                            dash_velocity = dv_l;
+                            t = upto_tl - (point.y - r_tl) * dash_velocity;
+                        } else {
+                            dash_velocity = dv_r;
+                            t = upto_r  + (point.y - r_tr) * dash_velocity;
+                        }
+                    }
+                }
+            }
+            let dash_length      = dash_length_per_width / dash_period_per_width;
+            let desired_dash_gap = dash_gap_per_width    / dash_period_per_width;
+            max_t -= select(0.0, dash_length, unrounded);
+            if (max_t >= 1.0) {
+                let dash_count  = floor(max_t);
+                let dash_period = max_t / dash_count;
+                border_color.a *= dash_alpha(t, dash_period, dash_length, dash_velocity, antialias_threshold);
+            } else if (unrounded) {
+                let dash_gap = max_t - dash_length;
+                if (dash_gap > 0.0) {
+                    let dash_period = dash_length + dash_gap;
+                    border_color.a *= dash_alpha(t, dash_period, dash_length, dash_velocity, antialias_threshold);
+                }
+            }
+        }
+        let blended_border = over(background_color, border_color);
+        color = mix(background_color, blended_border, saturate(antialias_threshold - inner_sdf));
+    }
+    return blend_color(color, saturate(antialias_threshold - outer_sdf));
+}
+
+// --- shadows (VBO) ---
+// Shadow stride 72: blur_radius@4 (Float32), bounds@8 (Float32x4),
+//   content_mask@40 (Float32x4), color@56 (Float32x4).
+// Outputs ShadowVarying; fs_shadow is reused unchanged.
+
+struct ShadowInstanceVbo {
+    @location(0) blur_radius:  f32,
+    @location(1) bounds:       vec4<f32>,
+    @location(2) content_mask: vec4<f32>,
+    @location(3) color:        vec4<f32>,
+}
+
+@vertex
+fn vs_shadow_vbo(
+    @builtin(vertex_index)   vertex_id:   u32,
+    @builtin(instance_index) instance_id: u32,
+    inst: ShadowInstanceVbo,
+) -> ShadowVarying {
+    let unit_vertex = vec2<f32>(f32(vertex_id & 1u), 0.5 * f32(vertex_id & 2u));
+    let margin = 3.0 * inst.blur_radius;
+    let expanded_bounds = Bounds(
+        inst.bounds.xy - vec2<f32>(margin),
+        inst.bounds.zw + 2.0 * vec2<f32>(margin),
+    );
+    let content_mask = Bounds(inst.content_mask.xy, inst.content_mask.zw);
+    var out = ShadowVarying();
+    out.position       = to_device_position(unit_vertex, expanded_bounds);
+    out.color          = hsla_to_rgba(Hsla(inst.color.x, inst.color.y, inst.color.z, inst.color.w));
+    out.shadow_id      = instance_id;
+    out.clip_distances = distance_from_clip_rect(unit_vertex, expanded_bounds, content_mask);
+    return out;
+}
+
+// --- underlines (VBO) ---
+// Underline stride 64: bounds@8 (Float32x4), content_mask@24 (Float32x4),
+//   color@40 (Float32x4).
+// Outputs UnderlineVarying; fs_underline is reused unchanged.
+
+struct UnderlineInstanceVbo {
+    @location(0) bounds:       vec4<f32>,
+    @location(1) content_mask: vec4<f32>,
+    @location(2) color:        vec4<f32>,
+}
+
+@vertex
+fn vs_underline_vbo(
+    @builtin(vertex_index)   vertex_id:   u32,
+    @builtin(instance_index) instance_id: u32,
+    inst: UnderlineInstanceVbo,
+) -> UnderlineVarying {
+    let unit_vertex  = vec2<f32>(f32(vertex_id & 1u), 0.5 * f32(vertex_id & 2u));
+    let bounds       = Bounds(inst.bounds.xy, inst.bounds.zw);
+    let content_mask = Bounds(inst.content_mask.xy, inst.content_mask.zw);
+    var out = UnderlineVarying();
+    out.position       = to_device_position(unit_vertex, bounds);
+    out.color          = hsla_to_rgba(Hsla(inst.color.x, inst.color.y, inst.color.z, inst.color.w));
+    out.underline_id   = instance_id;
+    out.clip_distances = distance_from_clip_rect(unit_vertex, bounds, content_mask);
+    return out;
+}
+
+// --- path rasterization (VBO) ---
+// PathRasterizationVertex stride 104, step Vertex:
+//   xy_position@0 (Float32x2), st_position@8 (Float32x2), bounds@88 (Float32x4).
+// Outputs PathRasterizationVarying; fs_path_rasterization is reused unchanged.
+
+struct PathRasterInstanceVbo {
+    @location(0) xy_position: vec2<f32>,
+    @location(1) st_position: vec2<f32>,
+    @location(2) bounds:      vec4<f32>,
+}
+
+@vertex
+fn vs_path_rasterization_vbo(
+    @builtin(vertex_index) vertex_id: u32,
+    vert: PathRasterInstanceVbo,
+) -> PathRasterizationVarying {
+    let bounds = Bounds(vert.bounds.xy, vert.bounds.zw);
+    var out = PathRasterizationVarying();
+    out.position       = to_device_position_impl(vert.xy_position);
+    out.st_position    = vert.st_position;
+    out.vertex_id      = vertex_id;
+    out.clip_distances = distance_from_clip_rect_impl(vert.xy_position, bounds);
+    return out;
+}
+
+// --- paths (VBO) ---
+// PathSprite stride 16, step Instance: bounds@0 (Float32x4).
+// Outputs PathVarying; fs_path is reused unchanged.
+
+struct PathInstanceVbo {
+    @location(0) bounds: vec4<f32>,
+}
+
+@vertex
+fn vs_path_vbo(
+    @builtin(vertex_index) vertex_id: u32,
+    inst: PathInstanceVbo,
+) -> PathVarying {
+    let unit_vertex     = vec2<f32>(f32(vertex_id & 1u), 0.5 * f32(vertex_id & 2u));
+    let sprite_bounds   = Bounds(inst.bounds.xy, inst.bounds.zw);
+    let screen_position = sprite_bounds.origin + unit_vertex * sprite_bounds.size;
+    var out = PathVarying();
+    out.position       = to_device_position(unit_vertex, sprite_bounds);
+    out.texture_coords = screen_position / globals.viewport_size;
+    return out;
+}
+
+// --- monochrome sprites (VBO) ---
+// MonochromeSprite stride 112, step Instance:
+//   bounds@8, content_mask@24, color@40 (all Float32x4),
+//   tile.bounds@72 (Sint32x4),
+//   transformation.rotation_scale@88 (Float32x4), .translation@104 (Float32x2).
+// Outputs MonoSpriteVarying; fs_mono_sprite is reused unchanged.
+
+struct MonoSpriteInstanceVbo {
+    @location(0) bounds:         vec4<f32>,
+    @location(1) content_mask:   vec4<f32>,
+    @location(2) color:          vec4<f32>,
+    @location(3) tile_bounds:    vec4<i32>,
+    @location(4) rotation_scale: vec4<f32>,
+    @location(5) translation:    vec2<f32>,
+}
+
+@vertex
+fn vs_mono_sprite_vbo(
+    @builtin(vertex_index)   vertex_id:   u32,
+    @builtin(instance_index) instance_id: u32,
+    inst: MonoSpriteInstanceVbo,
+) -> MonoSpriteVarying {
+    let unit_vertex  = vec2<f32>(f32(vertex_id & 1u), 0.5 * f32(vertex_id & 2u));
+    let bounds       = Bounds(inst.bounds.xy, inst.bounds.zw);
+    let content_mask = Bounds(inst.content_mask.xy, inst.content_mask.zw);
+
+    let position = unit_vertex * bounds.size + bounds.origin;
+    // Rust stores rotation_scale row-major; replicate transpose(mat) * position.
+    let rs = inst.rotation_scale;
+    let transformed = vec2<f32>(
+        rs.x * position.x + rs.y * position.y,
+        rs.z * position.x + rs.w * position.y,
+    ) + inst.translation;
+
+    let atlas_size    = vec2<f32>(textureDimensions(t_sprite, 0));
+    let tile_position = (vec2<f32>(inst.tile_bounds.xy) +
+                         unit_vertex * vec2<f32>(inst.tile_bounds.zw)) / atlas_size;
+
+    var out = MonoSpriteVarying();
+    out.position       = to_device_position_impl(transformed);
+    out.tile_position  = tile_position;
+    out.color          = hsla_to_rgba(Hsla(inst.color.x, inst.color.y, inst.color.z, inst.color.w));
+    out.clip_distances = distance_from_clip_rect_impl(transformed, content_mask);
+    return out;
+}
+
+// --- polychrome sprites (VBO) ---
+// PolychromeSprite stride 96, step Instance:
+//   bounds@16, content_mask@32 (all Float32x4), tile.bounds@80 (Sint32x4).
+// Outputs PolySpriteVarying; fs_poly_sprite is reused unchanged
+// (reads corner_radii/opacity from b_poly_sprites via FRAGMENT-only SSBO).
+
+struct PolySpriteInstanceVbo {
+    @location(0) bounds:       vec4<f32>,
+    @location(1) content_mask: vec4<f32>,
+    @location(2) tile_bounds:  vec4<i32>,
+}
+
+@vertex
+fn vs_poly_sprite_vbo(
+    @builtin(vertex_index)   vertex_id:   u32,
+    @builtin(instance_index) instance_id: u32,
+    inst: PolySpriteInstanceVbo,
+) -> PolySpriteVarying {
+    let unit_vertex  = vec2<f32>(f32(vertex_id & 1u), 0.5 * f32(vertex_id & 2u));
+    let bounds       = Bounds(inst.bounds.xy, inst.bounds.zw);
+    let content_mask = Bounds(inst.content_mask.xy, inst.content_mask.zw);
+
+    let atlas_size    = vec2<f32>(textureDimensions(t_sprite, 0));
+    let tile_position = (vec2<f32>(inst.tile_bounds.xy) +
+                         unit_vertex * vec2<f32>(inst.tile_bounds.zw)) / atlas_size;
+
+    var out = PolySpriteVarying();
+    out.position       = to_device_position(unit_vertex, bounds);
+    out.tile_position  = tile_position;
+    out.sprite_id      = instance_id;
+    out.clip_distances = distance_from_clip_rect(unit_vertex, bounds, content_mask);
+    return out;
+}
