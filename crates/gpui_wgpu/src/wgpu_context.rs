@@ -383,6 +383,22 @@ impl WgpuContext {
         adapter: &wgpu::Adapter,
         surface: &wgpu::Surface<'_>,
     ) -> anyhow::Result<(wgpu::Device, wgpu::Queue, bool, TextureFormat, GpuCapabilities)> {
+        // Some Vulkan drivers (e.g. V3D on Raspberry Pi 4) report features as supported
+        // but then return VK_ERROR_FEATURE_NOT_PRESENT from vkCreateDevice, which
+        // wgpu-hal converts to a panic. With panic=abort this kills the process.
+        // Detect these drivers early via missing downlevel flags and skip them so the
+        // adapter loop can fall through to a working backend (e.g. OpenGL ES).
+        let downlevel = adapter.get_downlevel_capabilities();
+        if adapter.get_info().backend == wgpu::Backend::Vulkan
+            && !downlevel
+                .flags
+                .contains(wgpu::DownlevelFlags::FULL_DRAW_INDEX_UINT32)
+        {
+            anyhow::bail!(
+                "Vulkan adapter is missing FULL_DRAW_INDEX_UINT32 — skipping to avoid driver bug"
+            );
+        }
+
         let caps = surface.get_capabilities(adapter);
         if caps.formats.is_empty() {
             anyhow::bail!("no compatible surface formats");
